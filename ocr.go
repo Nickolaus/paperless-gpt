@@ -41,6 +41,10 @@ type HOCRCapable interface {
 	ResetHOCR()
 }
 
+type documentCacheCleaner interface {
+	CleanupDocumentCache(documentID int) error
+}
+
 // ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
 func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
 	// Validate options for safety
@@ -53,6 +57,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		docLogger = docLogger.WithField("job_id", jobID)
 	}
 	docLogger.Info("Starting OCR processing")
+
+	if cleaner, ok := app.Client.(documentCacheCleaner); ok {
+		defer func() {
+			if err := cleaner.CleanupDocumentCache(documentID); err != nil {
+				docLogger.WithError(err).Warn("Failed to clean OCR document cache")
+			}
+		}()
+	}
 
 	// Determine the actual process mode to use
 	processMode := options.ProcessMode

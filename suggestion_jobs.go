@@ -56,6 +56,7 @@ func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
 	job.DocumentsDone = 0
 	job.TotalDocuments = len(job.Request.Documents)
 	store.jobs[job.ID] = job
+	store.pruneTerminalJobsLocked(time.Now(), suggestionJobRetention(), suggestionJobMaxTerminal())
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
 }
 
@@ -106,6 +107,8 @@ func cloneDocumentSuggestions(suggestions []DocumentSuggestion) []DocumentSugges
 }
 
 func (store *SuggestionJobStore) getJob(jobID string) (SuggestionJob, bool) {
+	store.pruneTerminalJobs(time.Now(), suggestionJobRetention(), suggestionJobMaxTerminal())
+
 	store.RLock()
 	defer store.RUnlock()
 	job, exists := store.jobs[jobID]
@@ -116,6 +119,8 @@ func (store *SuggestionJobStore) getJob(jobID string) (SuggestionJob, bool) {
 }
 
 func (store *SuggestionJobStore) getAllJobs() []SuggestionJob {
+	store.pruneTerminalJobs(time.Now(), suggestionJobRetention(), suggestionJobMaxTerminal())
+
 	store.RLock()
 	defer store.RUnlock()
 
@@ -129,6 +134,43 @@ func (store *SuggestionJobStore) getAllJobs() []SuggestionJob {
 	})
 
 	return jobs
+}
+
+func (store *SuggestionJobStore) pruneTerminalJobs(now time.Time, retention time.Duration, maxTerminalJobs int) {
+	store.Lock()
+	defer store.Unlock()
+	store.pruneTerminalJobsLocked(now, retention, maxTerminalJobs)
+}
+
+func (store *SuggestionJobStore) pruneTerminalJobsLocked(now time.Time, retention time.Duration, maxTerminalJobs int) {
+	for id, job := range store.jobs {
+		if isTerminalJobStatus(job.Status) && retention > 0 && now.Sub(jobRetentionTimestamp(job.CreatedAt, job.UpdatedAt)) > retention {
+			delete(store.jobs, id)
+		}
+	}
+
+	if maxTerminalJobs <= 0 {
+		return
+	}
+
+	terminalJobs := make([]*SuggestionJob, 0, len(store.jobs))
+	for _, job := range store.jobs {
+		if isTerminalJobStatus(job.Status) {
+			terminalJobs = append(terminalJobs, job)
+		}
+	}
+
+	if len(terminalJobs) <= maxTerminalJobs {
+		return
+	}
+
+	sort.Slice(terminalJobs, func(i, j int) bool {
+		return jobRetentionTimestamp(terminalJobs[i].CreatedAt, terminalJobs[i].UpdatedAt).Before(jobRetentionTimestamp(terminalJobs[j].CreatedAt, terminalJobs[j].UpdatedAt))
+	})
+
+	for _, job := range terminalJobs[:len(terminalJobs)-maxTerminalJobs] {
+		delete(store.jobs, job.ID)
+	}
 }
 
 func (store *SuggestionJobStore) startPending(jobID string) bool {

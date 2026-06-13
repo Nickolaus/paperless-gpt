@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -755,4 +756,26 @@ func TestDownloadDocumentAsPDF(t *testing.T) {
 	assert.Equal(t, 1, totalPages)
 
 	// Testing with splitting=true would be more complex so we'll skip that for simplicity
+}
+
+func TestCleanupDocumentCacheRemovesDocumentScratchFolders(t *testing.T) {
+	client := NewPaperlessClient("http://example.com", "test-token")
+	client.CacheFolder = t.TempDir()
+
+	documentImageCache := filepath.Join(client.CacheFolder, "document-123")
+	documentPDFCache := filepath.Join(client.CacheFolder, "document-123-pdf")
+	otherDocumentCache := filepath.Join(client.CacheFolder, "document-456")
+
+	require.NoError(t, os.MkdirAll(documentImageCache, 0755))
+	require.NoError(t, os.MkdirAll(documentPDFCache, 0755))
+	require.NoError(t, os.MkdirAll(otherDocumentCache, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(documentImageCache, "page001.jpg"), []byte("image"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(documentPDFCache, "original.pdf"), []byte("pdf"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(otherDocumentCache, "page001.jpg"), []byte("other"), 0644))
+
+	require.NoError(t, client.CleanupDocumentCache(123))
+
+	assert.NoDirExists(t, documentImageCache)
+	assert.NoDirExists(t, documentPDFCache)
+	assert.DirExists(t, otherDocumentCache)
 }

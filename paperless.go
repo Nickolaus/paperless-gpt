@@ -1116,6 +1116,23 @@ func (client *PaperlessClient) GetCacheFolder() string {
 	return client.CacheFolder
 }
 
+// CleanupDocumentCache removes OCR scratch files for a single document.
+func (client *PaperlessClient) CleanupDocumentCache(documentID int) error {
+	cacheFolders := []string{
+		filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d", documentID)),
+		filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d-pdf", documentID)),
+	}
+
+	var cleanupErr error
+	for _, cacheFolder := range cacheFolders {
+		if err := os.RemoveAll(cacheFolder); err != nil {
+			cleanupErr = err
+		}
+	}
+
+	return cleanupErr
+}
+
 // urlEncode encodes a string for safe URL usage
 func urlEncode(s string) string {
 	return strings.ReplaceAll(s, " ", "+")
