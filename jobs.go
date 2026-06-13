@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -47,6 +48,11 @@ var (
 	jobQueue = make(chan *Job, 100) // Buffered channel with capacity of 100 jobs
 )
 
+const (
+	defaultJobRetentionSeconds = 24 * 60 * 60
+	defaultMaxTerminalJobs     = 200
+)
+
 func init() {
 
 	// Initialize logger
@@ -62,49 +68,18 @@ func generateJobID() string {
 	return uuid.New().String()
 }
 
-// maxOCRJobs caps the in-memory OCR job store; terminal jobs are evicted
-// oldest-first so a long-running server does not accumulate them without bound.
-// (The durable record lives in the OCRRun table, which has its own pruning.)
-const maxOCRJobs = 200
-
 func (store *JobStore) addJob(job *Job) {
 	store.Lock()
 	defer store.Unlock()
 	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
-	store.evictOldestTerminalLocked()
+	store.pruneTerminalJobsLocked(time.Now(), ocrJobRetention(), ocrJobMaxTerminal())
 	logger.Infof("Job added: %v", job)
 }
 
-// evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
-// Callers must hold the write lock; in-flight jobs are never evicted.
-func (store *JobStore) evictOldestTerminalLocked() {
-	if len(store.jobs) <= maxOCRJobs {
-		return
-	}
-	type terminal struct {
-		id      string
-		updated time.Time
-	}
-	var candidates []terminal
-	for id, j := range store.jobs {
-		switch j.Status {
-		case "completed", "failed", "cancelled":
-			candidates = append(candidates, terminal{id, j.UpdatedAt})
-		}
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].updated.Before(candidates[j].updated)
-	})
-	for _, c := range candidates {
-		if len(store.jobs) <= maxOCRJobs {
-			break
-		}
-		delete(store.jobs, c.id)
-	}
-}
-
 func (store *JobStore) getJob(jobID string) (*Job, bool) {
+	store.pruneTerminalJobs(time.Now(), ocrJobRetention(), ocrJobMaxTerminal())
+
 	store.RLock()
 	defer store.RUnlock()
 	job, exists := store.jobs[jobID]
@@ -112,6 +87,8 @@ func (store *JobStore) getJob(jobID string) (*Job, bool) {
 }
 
 func (store *JobStore) GetAllJobs() []*Job {
+	store.pruneTerminalJobs(time.Now(), ocrJobRetention(), ocrJobMaxTerminal())
+
 	store.RLock()
 	defer store.RUnlock()
 
@@ -125,6 +102,101 @@ func (store *JobStore) GetAllJobs() []*Job {
 	})
 
 	return jobs
+}
+
+func (store *JobStore) pruneTerminalJobs(now time.Time, retention time.Duration, maxTerminalJobs int) {
+	store.Lock()
+	defer store.Unlock()
+	store.pruneTerminalJobsLocked(now, retention, maxTerminalJobs)
+}
+
+func (store *JobStore) pruneTerminalJobsLocked(now time.Time, retention time.Duration, maxTerminalJobs int) {
+	for id, job := range store.jobs {
+		if isTerminalJobStatus(job.Status) && retention > 0 && now.Sub(jobRetentionTimestamp(job.CreatedAt, job.UpdatedAt)) > retention {
+			delete(store.jobs, id)
+		}
+	}
+
+	if maxTerminalJobs <= 0 {
+		return
+	}
+
+	terminalJobs := make([]*Job, 0, len(store.jobs))
+	for _, job := range store.jobs {
+		if isTerminalJobStatus(job.Status) {
+			terminalJobs = append(terminalJobs, job)
+		}
+	}
+
+	if len(terminalJobs) <= maxTerminalJobs {
+		return
+	}
+
+	sort.Slice(terminalJobs, func(i, j int) bool {
+		return jobRetentionTimestamp(terminalJobs[i].CreatedAt, terminalJobs[i].UpdatedAt).Before(jobRetentionTimestamp(terminalJobs[j].CreatedAt, terminalJobs[j].UpdatedAt))
+	})
+
+	for _, job := range terminalJobs[:len(terminalJobs)-maxTerminalJobs] {
+		delete(store.jobs, job.ID)
+	}
+}
+
+func isTerminalJobStatus(status string) bool {
+	return status == "completed" || status == "failed" || status == "cancelled"
+}
+
+func jobRetentionTimestamp(createdAt, updatedAt time.Time) time.Time {
+	if !updatedAt.IsZero() {
+		return updatedAt
+	}
+	return createdAt
+}
+
+func ocrJobRetention() time.Duration {
+	return jobRetentionFromEnv("OCR_JOB_RETENTION_SECONDS")
+}
+
+func suggestionJobRetention() time.Duration {
+	return jobRetentionFromEnv("SUGGESTION_JOB_RETENTION_SECONDS")
+}
+
+func jobRetentionFromEnv(envName string) time.Duration {
+	value := os.Getenv(envName)
+	if value == "" {
+		return time.Duration(defaultJobRetentionSeconds) * time.Second
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 {
+		return time.Duration(defaultJobRetentionSeconds) * time.Second
+	}
+	if seconds == 0 {
+		return 0
+	}
+
+	return time.Duration(seconds) * time.Second
+}
+
+func ocrJobMaxTerminal() int {
+	return maxTerminalJobsFromEnv("OCR_JOB_MAX_TERMINAL")
+}
+
+func suggestionJobMaxTerminal() int {
+	return maxTerminalJobsFromEnv("SUGGESTION_JOB_MAX_TERMINAL")
+}
+
+func maxTerminalJobsFromEnv(envName string) int {
+	value := os.Getenv(envName)
+	if value == "" {
+		return defaultMaxTerminalJobs
+	}
+
+	maxJobs, err := strconv.Atoi(value)
+	if err != nil || maxJobs < 0 {
+		return defaultMaxTerminalJobs
+	}
+
+	return maxJobs
 }
 
 func (store *JobStore) updateJobStatus(jobID, status, result string) {

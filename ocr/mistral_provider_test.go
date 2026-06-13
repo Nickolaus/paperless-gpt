@@ -22,6 +22,8 @@ func setupTestServer() (*httptest.Server, func()) {
 			handleFileUploadRequest(w, r)
 		} else if r.URL.Path == "/v1/files/test-file-id/url" {
 			handleGetSignedURLRequest(w, r)
+		} else if r.URL.Path == "/v1/files/test-file-id" && r.Method == http.MethodDelete {
+			handleDeleteFileRequest(w, r)
 		}
 	}))
 
@@ -107,6 +109,19 @@ func handleGetSignedURLRequest(w http.ResponseWriter, r *http.Request) {
 		URL string `json:"url"`
 	}{
 		URL: "https://signed-url-for-file",
+	}
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleDeleteFileRequest(w http.ResponseWriter, r *http.Request) {
+	resp := struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Deleted bool   `json:"deleted"`
+	}{
+		ID:      "test-file-id",
+		Object:  "file",
+		Deleted: true,
 	}
 	json.NewEncoder(w).Encode(resp)
 }
@@ -198,7 +213,7 @@ func TestMistralOCRProvider_UploadFile(t *testing.T) {
 
 	// Test file upload
 	testPDF := []byte("test pdf data")
-	fileID, err := provider.uploadFile(testPDF)
+	fileID, err := provider.uploadFile(context.Background(), testPDF)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "test-file-id", fileID)
@@ -215,7 +230,7 @@ func TestMistralOCRProvider_GetSignedURL(t *testing.T) {
 	}
 
 	// Test getting signed URL
-	url, err := provider.getSignedURL("test-file-id")
+	url, err := provider.getSignedURL(context.Background(), "test-file-id")
 
 	assert.NoError(t, err)
 	assert.Equal(t, "https://signed-url-for-file", url)
@@ -238,10 +253,51 @@ func TestMistralOCRProvider_ProcessDocument(t *testing.T) {
 	req.Document.DocumentURL = "https://test-document-url"
 
 	logger := log.WithField("test", "process_document")
-	text, err := provider.processDocument(req, logger)
+	text, err := provider.processDocument(context.Background(), req, logger)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "Test OCR output", text)
+}
+
+func TestMistralOCRProvider_ProcessPDFDeletesUploadedFile(t *testing.T) {
+	origOCREndpoint := mistralOCREndpoint
+	origFilesEndpoint := mistralFilesEndpoint
+	deleteRequests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/files" && r.Method == http.MethodPost:
+			handleFileUploadRequest(w, r)
+		case r.URL.Path == "/v1/files/test-file-id/url" && r.Method == http.MethodGet:
+			handleGetSignedURLRequest(w, r)
+		case r.URL.Path == "/v1/ocr" && r.Method == http.MethodPost:
+			handleOCRRequest(w, r)
+		case r.URL.Path == "/v1/files/test-file-id" && r.Method == http.MethodDelete:
+			deleteRequests++
+			handleDeleteFileRequest(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer func() {
+		server.Close()
+		mistralOCREndpoint = origOCREndpoint
+		mistralFilesEndpoint = origFilesEndpoint
+	}()
+
+	mistralOCREndpoint = server.URL + "/v1/ocr"
+	mistralFilesEndpoint = server.URL + "/v1/files"
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	result, err := provider.ProcessImage(context.Background(), []byte("%PDF-1.7\ncontent"), 1)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, 1, deleteRequests)
 }
 
 func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
@@ -276,11 +332,15 @@ func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			origOCREndpoint := mistralOCREndpoint
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
 				fmt.Fprintln(w, tt.response)
 			}))
-			defer server.Close()
+			defer func() {
+				server.Close()
+				mistralOCREndpoint = origOCREndpoint
+			}()
 
 			provider := &MistralOCRProvider{
 				apiKey: "test-key",
@@ -295,7 +355,7 @@ func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
 			req.Document.DocumentURL = "https://test-document-url"
 
 			logger := log.WithField("test", "error_handling")
-			text, err := provider.processDocument(req, logger)
+			text, err := provider.processDocument(context.Background(), req, logger)
 
 			if tt.wantErr {
 				assert.Error(t, err)
