@@ -478,6 +478,13 @@ func (app *App) reOCRPageHandler(c *gin.Context) {
 
 	// Download all images for the document, but only process the requested page
 	imagePaths, _, err := app.Client.DownloadDocumentAsImages(c.Request.Context(), parsedID, limitOcrPages)
+	if cleaner, ok := app.Client.(documentCacheCleaner); ok {
+		defer func() {
+			if err := cleaner.CleanupDocumentCache(parsedID); err != nil {
+				log.Warnf("Failed to clean OCR document cache for document %d: %v", parsedID, err)
+			}
+		}()
+	}
 	if err != nil || pageIdx < 0 || pageIdx >= len(imagePaths) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page index or failed to download images"})
 		return
