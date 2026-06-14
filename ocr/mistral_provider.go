@@ -9,6 +9,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
@@ -45,12 +47,19 @@ type MistralOCRRequest struct {
 	TableFormat                 string `json:"table_format,omitempty"`
 }
 
+type MistralOCRTable struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Format  string `json:"format"`
+}
+
 // MistralOCRResponse represents the response from Mistral's OCR API
 type MistralOCRResponse struct {
 	Pages []struct {
-		Index      int           `json:"index"`
-		Markdown   string        `json:"markdown"`
-		Images     []interface{} `json:"images"`
+		Index      int               `json:"index"`
+		Markdown   string            `json:"markdown"`
+		Images     []interface{}     `json:"images"`
+		Tables     []MistralOCRTable `json:"tables,omitempty"`
 		Dimensions struct {
 			Dpi    int `json:"dpi"`
 			Height int `json:"height"`
@@ -407,6 +416,75 @@ func (p *MistralOCRProvider) deleteFile(ctx context.Context, fileID string) erro
 	return nil
 }
 
+func expandMistralTableReferences(markdown string, tables []MistralOCRTable) (string, int) {
+	expanded := markdown
+	tableCount := 0
+
+	for _, table := range tables {
+		content := strings.TrimSpace(table.Content)
+		if content == "" || strings.Contains(expanded, content) {
+			continue
+		}
+
+		replaced := false
+		for _, candidate := range tableReferenceCandidates(table.ID) {
+			for _, placeholder := range []string{
+				fmt.Sprintf("[%s](%s)", candidate, candidate),
+				fmt.Sprintf("[%s](./%s)", candidate, candidate),
+				fmt.Sprintf("![%s](%s)", candidate, candidate),
+				fmt.Sprintf("![%s](./%s)", candidate, candidate),
+			} {
+				if strings.Contains(expanded, placeholder) {
+					expanded = strings.ReplaceAll(expanded, placeholder, content)
+					replaced = true
+				}
+			}
+		}
+
+		if !replaced {
+			expanded = strings.TrimRight(expanded, "\n") + "\n\n" + content
+		}
+		tableCount++
+	}
+
+	return expanded, tableCount
+}
+
+func tableReferenceCandidates(id string) []string {
+	normalized := strings.TrimSpace(id)
+	if normalized == "" {
+		return nil
+	}
+
+	candidates := []string{normalized}
+	base := path.Base(normalized)
+	if base != normalized {
+		candidates = append(candidates, base)
+	}
+	withoutExt := strings.TrimSuffix(base, path.Ext(base))
+	if withoutExt != "" && withoutExt != base {
+		candidates = append(candidates, withoutExt)
+	}
+	if path.Ext(base) == "" {
+		candidates = append(candidates, base+".md")
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		unique = append(unique, candidate)
+	}
+
+	return unique
+}
+
 // processDocument sends the OCR request to Mistral's API
 func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCRRequest, logger *logrus.Entry) (string, map[string]interface{}, error) {
 	logger.Debug("Processing document with Mistral OCR API")
@@ -487,16 +565,21 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 
 	// Combine text from all pages
 	var combinedText string
+	totalTablesExpanded := 0
 	for i, page := range ocrResp.Pages {
+		pageText, tablesExpanded := expandMistralTableReferences(page.Markdown, page.Tables)
+		totalTablesExpanded += tablesExpanded
 		logger.WithFields(logrus.Fields{
-			"page_index":    i,
-			"page_markdown": len(page.Markdown),
-			"page_dpi":      page.Dimensions.Dpi,
-			"page_width":    page.Dimensions.Width,
-			"page_height":   page.Dimensions.Height,
+			"page_index":      i,
+			"page_markdown":   len(page.Markdown),
+			"page_tables":     len(page.Tables),
+			"tables_expanded": tablesExpanded,
+			"page_dpi":        page.Dimensions.Dpi,
+			"page_width":      page.Dimensions.Width,
+			"page_height":     page.Dimensions.Height,
 		}).Debug("Processing page content")
 
-		combinedText += page.Markdown + "\n"
+		combinedText += pageText + "\n"
 	}
 
 	// Remove trailing newline
@@ -510,6 +593,7 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 		"model":           ocrResp.Model,
 		"pages_processed": ocrResp.UsageInfo.PagesProcessed,
 		"doc_size_bytes":  ocrResp.UsageInfo.DocSizeBytes,
+		"tables_expanded": totalTablesExpanded,
 	}
 	if ocrResp.ConfidenceScores != nil {
 		generationInfo["confidence_scores_present"] = true

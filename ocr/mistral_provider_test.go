@@ -112,9 +112,10 @@ func TestMistralOCRProvider_DoesNotRetryPermanentOCRFailure(t *testing.T) {
 func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
 	resp := MistralOCRResponse{
 		Pages: []struct {
-			Index      int           `json:"index"`
-			Markdown   string        `json:"markdown"`
-			Images     []interface{} `json:"images"`
+			Index      int               `json:"index"`
+			Markdown   string            `json:"markdown"`
+			Images     []interface{}     `json:"images"`
+			Tables     []MistralOCRTable `json:"tables,omitempty"`
 			Dimensions struct {
 				Dpi    int `json:"dpi"`
 				Height int `json:"height"`
@@ -271,6 +272,78 @@ func TestMistralOCRProvider_ProcessImage(t *testing.T) {
 	assert.Equal(t, "Test OCR output", result.Text)
 	assert.Equal(t, "mistral_ocr", result.Metadata["provider"])
 	assert.Equal(t, "mistral-ocr-latest", result.Metadata["model"])
+}
+
+func TestExpandMistralTableReferences(t *testing.T) {
+	tests := []struct {
+		name           string
+		markdown       string
+		tables         []MistralOCRTable
+		wantContains   []string
+		wantNotContain []string
+		wantCount      int
+	}{
+		{
+			name:     "replaces table markdown link with content",
+			markdown: "Before\n\n[tbl-0.md](tbl-0.md)\n\nAfter",
+			tables: []MistralOCRTable{{
+				ID:      "tbl-0.md",
+				Content: "| Item | Qty |\n| --- | --- |\n| Switch | 2 |",
+				Format:  "markdown",
+			}},
+			wantContains:   []string{"Before", "| Switch | 2 |", "After"},
+			wantNotContain: []string{"[tbl-0.md](tbl-0.md)"},
+			wantCount:      1,
+		},
+		{
+			name:     "replaces path table id with basename link",
+			markdown: "Details\n\n[tbl-1.md](tbl-1.md)",
+			tables: []MistralOCRTable{{
+				ID:      "tables/tbl-1.md",
+				Content: "| Net | Tax |\n| --- | --- |\n| 10 | 1.90 |",
+				Format:  "markdown",
+			}},
+			wantContains:   []string{"| Net | Tax |", "| 10 | 1.90 |"},
+			wantNotContain: []string{"[tbl-1.md](tbl-1.md)"},
+			wantCount:      1,
+		},
+		{
+			name:     "appends table content when no placeholder exists",
+			markdown: "Body text",
+			tables: []MistralOCRTable{{
+				ID:      "tbl-2.md",
+				Content: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+				Format:  "markdown",
+			}},
+			wantContains: []string{"Body text", "| A | B |", "| 1 | 2 |"},
+			wantCount:    1,
+		},
+		{
+			name:     "does not duplicate already inline table content",
+			markdown: "Body text\n\n| A | B |\n| --- | --- |\n| 1 | 2 |",
+			tables: []MistralOCRTable{{
+				ID:      "tbl-2.md",
+				Content: "| A | B |\n| --- | --- |\n| 1 | 2 |",
+				Format:  "markdown",
+			}},
+			wantContains: []string{"Body text", "| A | B |", "| 1 | 2 |"},
+			wantCount:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, count := expandMistralTableReferences(tt.markdown, tt.tables)
+
+			assert.Equal(t, tt.wantCount, count)
+			for _, expected := range tt.wantContains {
+				assert.Contains(t, got, expected)
+			}
+			for _, unexpected := range tt.wantNotContain {
+				assert.NotContains(t, got, unexpected)
+			}
+		})
+	}
 }
 
 func TestMistralOCRProvider_UploadFile(t *testing.T) {
