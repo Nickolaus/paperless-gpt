@@ -109,6 +109,13 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           cf.id === fieldId ? { ...cf, isSelected: !cf.isSelected } : cf
         ),
       })),
+    onCustomFieldSuggestionValueChange: (docId, fieldId, value) =>
+      updateItem(docId, (item) => ({
+        ...item,
+        suggested_custom_fields: item.suggested_custom_fields?.map((cf) =>
+          cf.id === fieldId ? { ...cf, value, isSelected: true } : cf
+        ),
+      })),
   };
 
   const handleToggleField = (docId: number, key: FieldKey) => {

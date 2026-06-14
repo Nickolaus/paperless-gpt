@@ -51,6 +51,7 @@ export interface DocumentSuggestion {
   suggested_created_date?: string;
   suggested_custom_fields?: CustomFieldSuggestion[];
   field_errors?: Record<string, string>;
+  custom_fields_write_mode?: string;
 }
 
 export interface TagOption {

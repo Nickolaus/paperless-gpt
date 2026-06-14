@@ -304,10 +304,7 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
             </span>
             <div className="mt-2 space-y-1.5">
               {suggestion.suggested_custom_fields.map((field) => (
-                <label
-                  key={field.id}
-                  className="flex cursor-pointer items-start gap-2 text-sm"
-                >
+                <div key={field.id} className="flex items-start gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={field.isSelected}
@@ -318,13 +315,28 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
                       )
                     }
                     disabled={disabled}
-                    className="mt-0.5 h-4 w-4 cursor-pointer rounded accent-primary"
+                    aria-label={`Apply suggested ${field.name}`}
+                    className="mt-2 h-4 w-4 cursor-pointer rounded accent-primary"
                   />
-                  <span className="min-w-0 break-words">
-                    <span className="font-medium">{field.name}:</span>{" "}
-                    {String(field.value)}
-                  </span>
-                </label>
+                  <label className="min-w-0 flex-1">
+                    <span className="text-xs font-medium text-muted">
+                      {field.name}
+                    </span>
+                    <input
+                      type="text"
+                      value={String(field.value ?? "")}
+                      onChange={(e) =>
+                        handlers.onCustomFieldSuggestionValueChange(
+                          suggestion.id,
+                          field.id,
+                          e.target.value
+                        )
+                      }
+                      disabled={disabled}
+                      className={classNames(inputClasses, "mt-1")}
+                    />
+                  </label>
+                </div>
               ))}
             </div>
           </div>
