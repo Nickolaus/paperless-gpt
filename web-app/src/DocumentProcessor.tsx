@@ -1254,16 +1254,18 @@ const DocumentProcessor: React.FC = () => {
                             </div>
                           )}
 
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveOCRContent(result)}
-                              disabled={savingOCRDocumentId === result.documentId || result.saved}
-                              className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {savingOCRDocumentId === result.documentId ? "Saving..." : result.saved ? "OCR saved" : "Save OCR content"}
-                            </button>
-                          </div>
+                          {selectedDocuments.length > 1 && (
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveOCRContent(result)}
+                                disabled={savingOCRDocumentId === result.documentId || result.saved}
+                                className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {savingOCRDocumentId === result.documentId ? "Saving..." : result.saved ? "OCR saved" : "Save OCR content"}
+                              </button>
+                            </div>
+                          )}
                         </>
                       ) : (
                         <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">Waiting for OCR result.</p>
@@ -1275,14 +1277,14 @@ const DocumentProcessor: React.FC = () => {
 
               {allSelectedOCRComplete && (
                 <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
-                  {unsavedOCRContentCount > 1 && (
+                  {unsavedOCRContentCount > 0 && (
                     <button
                       type="button"
                       onClick={handleSaveAllOCRContent}
                       disabled={savingOCRDocumentId !== null || !hasUnsavedOCRContent}
                       className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Save all unsaved OCR content
+                      {selectedDocuments.length === 1 ? "Save OCR content" : "Save all unsaved OCR content"}
                     </button>
                   )}
                   {workflowModeUsesSuggestions && (
