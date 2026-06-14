@@ -109,6 +109,7 @@ type Settings struct {
 	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
 	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
 	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
+	TitleSchema             string `json:"title_schema"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
@@ -169,6 +170,7 @@ type ClientInterface interface {
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)
 	CreateTag(ctx context.Context, tagName string) (int, error)
+	CreateOrGetDocumentType(ctx context.Context, documentType DocumentType) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)

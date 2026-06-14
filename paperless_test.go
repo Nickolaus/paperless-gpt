@@ -621,6 +621,80 @@ func TestUpdateDocumentsUsesExplicitTagAddRemove(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestUpdateDocumentsCreatesNewDocumentTypeWhenEnabled(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	originalCreateNewDocumentTypes := createNewDocumentTypes
+	createNewDocumentTypes = true
+	defer func() { createNewDocumentTypes = originalCreateNewDocumentTypes }()
+
+	document := DocumentSuggestion{
+		ID: 88,
+		OriginalDocument: Document{
+			ID:               88,
+			Title:            "Typed document",
+			Tags:             []string{"existing"},
+			DocumentTypeName: "",
+		},
+		SuggestedDocumentType: "Bescheid",
+	}
+
+	tagsResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 1, "name": "existing"},
+		},
+		"next": nil,
+	}
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(tagsResponse)
+	})
+
+	env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{},
+			})
+		case "POST":
+			bodyBytes, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			defer r.Body.Close()
+
+			var request DocumentType
+			require.NoError(t, json.Unmarshal(bodyBytes, &request))
+			assert.Equal(t, "Bescheid", request.Name)
+
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": 9})
+		default:
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+	})
+
+	updatePath := fmt.Sprintf("/api/documents/%d/", document.ID)
+	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "PATCH", r.Method)
+		bodyBytes, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		defer r.Body.Close()
+
+		var updatedFields map[string]interface{}
+		require.NoError(t, json.Unmarshal(bodyBytes, &updatedFields))
+		assert.Equal(t, map[string]interface{}{
+			"document_type": float64(9),
+		}, updatedFields)
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{document}, env.db, false)
+	require.NoError(t, err)
+}
+
 func TestUpdateDocumentsRejectsStaleTagSnapshot(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()

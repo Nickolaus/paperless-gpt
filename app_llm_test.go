@@ -112,6 +112,13 @@ Content: {{.Content}}
 Language: {{.Language}}
 Content: {{.Content}}
 `
+	testDocumentTypeTemplate = `
+Language: {{.Language}}
+Types: {{.AvailableDocumentTypes}}
+CreateNew: {{.CreateNewDocumentTypes}}
+Title: {{.Title}}
+Content: {{.Content}}
+`
 	testCreatedDateContentTemplate = `
 Language: {{.Language}}
 Content: {{.Content}}
@@ -436,6 +443,58 @@ func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
 
+func TestDocumentTypeExactTitleMatch(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+	mockLLM := &mockLLM{Response: ""}
+	app := &App{LLM: mockLLM}
+
+	documentType, err := app.getSuggestedDocumentType(
+		context.Background(),
+		"Some OCR content",
+		"Example Supplier Lieferschein Nr. 12345",
+		[]string{"Rechnung", "Lieferschein", "Wartungsprotokoll"},
+		testLogger,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Lieferschein", documentType)
+	assert.Empty(t, mockLLM.lastPrompt)
+}
+
+func TestCreateNewDocumentTypesFiltering(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	var err error
+	documentTypeTemplate, err = template.New("document_type").Parse(testDocumentTypeTemplate)
+	require.NoError(t, err)
+
+	originalCreateNewDocumentTypes := createNewDocumentTypes
+	defer func() { createNewDocumentTypes = originalCreateNewDocumentTypes }()
+
+	ctx := context.Background()
+	availableDocumentTypes := []string{"Rechnung", "Lieferschein"}
+
+	t.Run("default filters out new document type", func(t *testing.T) {
+		createNewDocumentTypes = false
+		mockLLM := &mockLLM{Response: "Bescheid"}
+		app := &App{LLM: mockLLM}
+
+		documentType, err := app.getSuggestedDocumentType(ctx, "Some document content", "Unknown document", availableDocumentTypes, testLogger)
+		require.NoError(t, err)
+		assert.Empty(t, documentType)
+	})
+
+	t.Run("createNewDocumentTypes allows new document type", func(t *testing.T) {
+		createNewDocumentTypes = true
+		mockLLM := &mockLLM{Response: "Bescheid"}
+		app := &App{LLM: mockLLM}
+
+		documentType, err := app.getSuggestedDocumentType(ctx, "Some document content", "Unknown document", availableDocumentTypes, testLogger)
+		require.NoError(t, err)
+		assert.Equal(t, "Bescheid", documentType)
+	})
+}
+
 func TestStripReasoning(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -612,6 +671,9 @@ func (m *mockPaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]Docume
 	return []DocumentType{{ID: 1, Name: "Invoice"}}, nil
 }
 func (m *mockPaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+	return 0, nil
+}
+func (m *mockPaperlessClient) CreateOrGetDocumentType(ctx context.Context, documentType DocumentType) (int, error) {
 	return 0, nil
 }
 func (m *mockPaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error) {

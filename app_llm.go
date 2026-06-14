@@ -244,6 +244,23 @@ func (app *App) getSuggestedTags(
 	return filteredTags, nil
 }
 
+func findExactDocumentTypeMatch(text string, availableDocumentTypes []string) string {
+	normalizedText := strings.ToLower(text)
+	matches := []string{}
+	for _, docType := range availableDocumentTypes {
+		if docType == "" {
+			continue
+		}
+		if strings.Contains(normalizedText, strings.ToLower(docType)) {
+			matches = append(matches, docType)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return ""
+}
+
 // getSuggestedDocumentType generates a suggested document type for a document using the LLM
 func (app *App) getSuggestedDocumentType(
 	ctx context.Context,
@@ -252,6 +269,11 @@ func (app *App) getSuggestedDocumentType(
 	availableDocumentTypes []string,
 	logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
+
+	if exactMatch := findExactDocumentTypeMatch(suggestedTitle, availableDocumentTypes); exactMatch != "" {
+		logger.WithField("document_type", exactMatch).Debug("Using exact document type match from title")
+		return exactMatch, nil
+	}
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
@@ -262,6 +284,7 @@ func (app *App) getSuggestedDocumentType(
 		"AvailableDocumentTypes":       availableDocumentTypes,
 		"AvailableDocumentTypeContext": strings.Join(availableDocumentTypes, "\n"),
 		"Title":                        suggestedTitle,
+		"CreateNewDocumentTypes":       createNewDocumentTypes,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(documentTypeTemplate, templateData)
@@ -312,6 +335,9 @@ func (app *App) getSuggestedDocumentType(
 			return docType, nil // Return the exact name from available types
 		}
 	}
+	if createNewDocumentTypes && response != "" {
+		return response, nil
+	}
 
 	// If not found in available types, return empty string
 	if response != "" {
@@ -324,6 +350,13 @@ func (app *App) getSuggestedDocumentType(
 func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, generationContext suggestionGenerationContext, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
+	settingsMutex.RLock()
+	titleSchema := settings.TitleSchema
+	settingsMutex.RUnlock()
+	if titleSchema == "" {
+		titleSchema = defaultTitleSchema
+	}
+
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
 
@@ -332,6 +365,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 		"Language":                     likelyLanguage,
 		"Content":                      content,
 		"Title":                        originalTitle,
+		"TitleSchema":                  titleSchema,
 		"AvailableTagContext":          generationContext.availableTagContext,
 		"AvailableDocumentTypeContext": generationContext.availableDocumentTypeContext,
 	}

@@ -63,6 +63,16 @@ export interface TagOption {
   name: string;
 }
 
+export interface DocumentTypeOption {
+  id: number;
+  name: string;
+}
+
+interface DocumentTypesResponse {
+  document_types: DocumentTypeOption[];
+  create_new_document_types: boolean;
+}
+
 interface SuggestionJobResponse {
   job_id: string;
   status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
@@ -251,6 +261,8 @@ const DocumentProcessor: React.FC = () => {
   );
   const [suggestions, setSuggestions] = useState<DocumentSuggestion[]>([]);
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
+  const [availableDocumentTypes, setAvailableDocumentTypes] = useState<DocumentTypeOption[]>([]);
+  const [createNewDocumentTypesEnabled, setCreateNewDocumentTypesEnabled] = useState(false);
   const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -359,10 +371,11 @@ const DocumentProcessor: React.FC = () => {
 
   const fetchInitialData = useCallback(async () => {
     try {
-      const [filterTagRes, documentsRes, tagsRes, customFieldsRes, ocrEnabledRes] = await Promise.all([
+      const [filterTagRes, documentsRes, tagsRes, documentTypesRes, customFieldsRes, ocrEnabledRes] = await Promise.all([
         axios.get<{ tag: string }>("./api/filter-tag"),
         axios.get<Document[]>("./api/documents"),
         axios.get<Record<string, number>>("./api/tags"),
+        axios.get<DocumentTypesResponse>("./api/document_types"),
         axios.get<CustomField[]>("./api/custom_fields"),
         axios.get<{ enabled: boolean }>("./api/experimental/ocr"),
       ]);
@@ -374,6 +387,8 @@ const DocumentProcessor: React.FC = () => {
         previous.length > 0 ? previous.filter((id) => documentsRes.data.some((doc) => doc.id === id)) : documentsRes.data.map((doc) => doc.id)
       );
       setAvailableTags(Object.keys(tagsRes.data).map((tag) => ({ id: tag, name: tag })));
+      setAvailableDocumentTypes(documentTypesRes.data.document_types || []);
+      setCreateNewDocumentTypesEnabled(Boolean(documentTypesRes.data.create_new_document_types));
       setOcrEnabled(ocrEnabledRes.data.enabled);
       if (!ocrEnabledRes.data.enabled) {
         setWorkflowMode((current) => current === "suggestions_only" ? current : "suggestions_only");
@@ -1046,6 +1061,8 @@ const DocumentProcessor: React.FC = () => {
         <SuggestionsReview
           suggestions={suggestions}
           availableTags={availableTags}
+          availableDocumentTypes={availableDocumentTypes}
+          createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           onTitleChange={handleTitleChange}
           onTagAddition={handleTagAddition}
           onTagDeletion={handleTagDeletion}

@@ -1,10 +1,12 @@
 import React from "react";
 import { ReactTags } from "react-tag-autocomplete";
-import { DocumentSuggestion, TagOption } from "../DocumentProcessor";
+import { DocumentSuggestion, DocumentTypeOption, TagOption } from "../DocumentProcessor";
 
 interface SuggestionCardProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
+  availableDocumentTypes: DocumentTypeOption[];
+  createNewDocumentTypesEnabled: boolean;
   onTitleChange: (docId: number, title: string) => void;
   onTagAddition: (docId: number, tag: TagOption) => void;
   onTagDeletion: (docId: number, tag: string) => void;
@@ -18,6 +20,8 @@ interface SuggestionCardProps {
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   availableTags,
+  availableDocumentTypes,
+  createNewDocumentTypesEnabled,
   onTitleChange,
   onTagAddition,
   onTagDeletion,
@@ -28,6 +32,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onCustomFieldSuggestionToggle,
 }) => {
   const sortedAvailableTags = [...availableTags].sort((a, b) => a.name.localeCompare(b.name));
+  const sortedAvailableDocumentTypes = [...availableDocumentTypes].sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
   const originalValue = (value?: string) => value?.trim() || "Empty";
   const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
@@ -40,6 +45,10 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const addedTags = selectedTags.filter((tag) => !includesTag(originalTags, tag));
   const suggestedExistingTags = addedTags.filter((tag) => includesTag(availableTagNames, tag));
   const newTags = addedTags.filter((tag) => !includesTag(availableTagNames, tag));
+  const suggestedDocumentType = suggestion.suggested_document_type?.trim() || "";
+  const suggestedDocumentTypeExists = suggestedDocumentType
+    ? sortedAvailableDocumentTypes.some((documentType) => tagEquals(documentType.name, suggestedDocumentType))
+    : false;
 
   const renderTagList = (
     tags: string[],
@@ -251,13 +260,41 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Current: {originalValue(document.document_type_name)}
           </p>
+          {suggestedDocumentType && (
+            <div className="mt-2">
+              <span
+                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                  suggestedDocumentTypeExists
+                    ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                    : createNewDocumentTypesEnabled
+                      ? "bg-yellow-100 text-yellow-900 dark:bg-yellow-900 dark:text-yellow-100"
+                      : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"
+                }`}
+              >
+                {suggestedDocumentTypeExists
+                  ? "Existing document type"
+                  : createNewDocumentTypesEnabled
+                    ? "New document type will be created"
+                    : "Unknown document type will be skipped"}
+              </span>
+            </div>
+          )}
           <input
-            type="text"
+            type="search"
+            list={`document-types-${suggestion.id}`}
             value={suggestion.suggested_document_type || ""}
             onChange={(e) => onDocumentTypeChange(suggestion.id, e.target.value)}
             className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
             placeholder="Document Type"
           />
+          <datalist id={`document-types-${suggestion.id}`}>
+            {sortedAvailableDocumentTypes.map((documentType) => (
+              <option key={documentType.id} value={documentType.name} />
+            ))}
+          </datalist>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Choose an existing document type. {createNewDocumentTypesEnabled ? "New values are allowed after review." : "New values are disabled and will not be created."}
+          </p>
         </div>
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

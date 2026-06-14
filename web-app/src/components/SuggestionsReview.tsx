@@ -1,10 +1,12 @@
 import React from "react";
-import { DocumentSuggestion, TagOption } from "../DocumentProcessor";
+import { DocumentSuggestion, DocumentTypeOption, TagOption } from "../DocumentProcessor";
 import SuggestionCard from "./SuggestionCard";
 
 interface SuggestionsReviewProps {
   suggestions: DocumentSuggestion[];
   availableTags: TagOption[];
+  availableDocumentTypes: DocumentTypeOption[];
+  createNewDocumentTypesEnabled: boolean;
   onTitleChange: (docId: number, title: string) => void;
   onTagAddition: (docId: number, tag: TagOption) => void;
   onTagDeletion: (docId: number, tag: string) => void;
@@ -21,6 +23,8 @@ interface SuggestionsReviewProps {
 const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   suggestions,
   availableTags,
+  availableDocumentTypes,
+  createNewDocumentTypesEnabled,
   onTitleChange,
   onTagAddition,
   onTagDeletion,
@@ -43,6 +47,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           key={doc.id}
           suggestion={doc}
           availableTags={availableTags}
+          availableDocumentTypes={availableDocumentTypes}
+          createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           onTitleChange={onTitleChange}
           onTagAddition={onTagAddition}
           onTagDeletion={onTagDeletion}

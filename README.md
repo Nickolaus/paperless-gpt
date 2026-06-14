@@ -609,7 +609,8 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
 | `CREATE_NEW_TAGS`                   | Allow the LLM to suggest new tags that don't exist in paperless-ngx yet. Existing tags are preferred; new tags are created in paperless-ngx when suggestions are applied.                    | No       | false                      |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
-| `AUTO_GENERATE_DOCUMENT_TYPE`       | Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used.                                                          | No       | true                       |
+| `AUTO_GENERATE_DOCUMENT_TYPE`       | Generate document types automatically if `paperless-gpt-auto` is used. Existing document types from paperless-ngx are preferred.                                                              | No       | true                       |
+| `CREATE_NEW_DOCUMENT_TYPES`         | Allow the LLM or reviewer to suggest document types that do not exist in paperless-ngx yet. New document types are created in paperless-ngx when suggestions are applied.                     | No       | false                      |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
 | `IMAGE_MAX_PIXEL_DIMENSION`         | Maximum pixels along any side when rendering document pages to images.                                                                                                                        | No       | 10000                      |
@@ -645,6 +646,7 @@ Each template has access to specific variables:
 - `{{.Language}}` - Target language (e.g., "English")
 - `{{.Content}}` - Document content text
 - `{{.Title}}` - Original document title
+- `{{.TitleSchema}}` - User-configured title schema from Settings
 - `{{.AvailableTagContext}}` - Current tag taxonomy when tag suggestions are requested
 - `{{.AvailableDocumentTypeContext}}` - Current document types when document type suggestions are requested
 
@@ -664,6 +666,7 @@ Each template has access to specific variables:
 - `{{.AvailableDocumentTypeContext}}` - Current document types formatted for prompt context
 - `{{.Title}}` - Document title
 - `{{.Content}}` - Document content text
+- `{{.CreateNewDocumentTypes}}` - Whether new document types may be suggested
 
 **ocr_prompt.tmpl**:
 
@@ -915,8 +918,9 @@ P.O. Box 94515
 
 3. **Generate & Apply Suggestions**
 
-   - Click "Generate Suggestions" to see AI-proposed titles/tags/correspondents
+   - Click "Generate Suggestions" to see AI-proposed titles, tags, correspondents, document types, and dates
    - Review and approve or edit suggestions
+   - Document type suggestions use a selector of existing paperless-ngx document types. If `CREATE_NEW_DOCUMENT_TYPES=true`, new document types are clearly marked and created only when you apply the reviewed suggestion.
    - Click "Apply" to save changes to paperless-ngx
 
 4. **OCR Processing**

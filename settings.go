@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	configDir    = "config"
-	settingsFile = "settings.json"
+	configDir          = "config"
+	settingsFile       = "settings.json"
+	defaultTitleSchema = "{{sender}} - {{document_type}} {{reference}} - {{subject}}"
 )
 
 // saveSettings saves the current settings to the settings.json file.
@@ -50,6 +51,7 @@ func loadSettings() {
 			CustomFieldsEnable:      false,
 			CustomFieldsSelectedIDs: []int{},
 			CustomFieldsWriteMode:   "append",
+			TitleSchema:             defaultTitleSchema,
 		}
 	}
 
@@ -74,6 +76,12 @@ func loadSettings() {
 		log.Warnf("Failed to parse settings file, please check its format. Loading default settings. Error: %v", err)
 		loadDefaultSettings()
 		return
+	}
+	if settings.CustomFieldsWriteMode == "" {
+		settings.CustomFieldsWriteMode = "append"
+	}
+	if settings.TitleSchema == "" {
+		settings.TitleSchema = defaultTitleSchema
 	}
 
 	log.Info("Successfully loaded settings from settings.json")

@@ -107,6 +107,22 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tags)
 }
 
+func (app *App) getAllDocumentTypesHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	documentTypes, err := app.Client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching document types: %v", err)})
+		log.Errorf("Error fetching document types: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"document_types":            documentTypes,
+		"create_new_document_types": createNewDocumentTypes,
+	})
+}
+
 // getSettingsHandler handles the GET /api/settings endpoint
 func (app *App) getSettingsHandler(c *gin.Context) {
 	// Refresh the cache when settings are requested
@@ -134,6 +150,12 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&newSettings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
+	}
+	if newSettings.CustomFieldsWriteMode == "" {
+		newSettings.CustomFieldsWriteMode = "append"
+	}
+	if strings.TrimSpace(newSettings.TitleSchema) == "" {
+		newSettings.TitleSchema = defaultTitleSchema
 	}
 
 	// Update the global settings variable
