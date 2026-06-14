@@ -15,6 +15,62 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+func formatTagTaxonomy(tags []Tag) string {
+	if len(tags) == 0 {
+		return ""
+	}
+
+	tagsByID := make(map[int]Tag, len(tags))
+	childrenByParentID := make(map[int][]Tag)
+	roots := make([]Tag, 0, len(tags))
+
+	for _, tag := range tags {
+		tagsByID[tag.ID] = tag
+	}
+
+	for _, tag := range tags {
+		if tag.ParentID != nil {
+			if _, exists := tagsByID[*tag.ParentID]; exists {
+				childrenByParentID[*tag.ParentID] = append(childrenByParentID[*tag.ParentID], tag)
+				continue
+			}
+		}
+		roots = append(roots, tag)
+	}
+
+	sortTagsByName(roots)
+	for parentID := range childrenByParentID {
+		sortTagsByName(childrenByParentID[parentID])
+	}
+
+	lines := []string{}
+	visited := map[int]bool{}
+	var appendTag func(tag Tag, depth int)
+	appendTag = func(tag Tag, depth int) {
+		if visited[tag.ID] {
+			return
+		}
+		visited[tag.ID] = true
+
+		lines = append(lines, fmt.Sprintf("%s- %s", strings.Repeat("  ", depth), tag.Name))
+		for _, child := range childrenByParentID[tag.ID] {
+			appendTag(child, depth+1)
+		}
+	}
+
+	for _, root := range roots {
+		appendTag(root, 0)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func sortTagsByName(tags []Tag) {
+	slices.SortFunc(tags, func(left, right Tag) int {
+		return strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
+	})
+}
+
 // getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
 func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
 	likelyLanguage := getLikelyLanguage()
@@ -76,6 +132,7 @@ func (app *App) getSuggestedTags(
 	content string,
 	suggestedTitle string,
 	availableTags []string,
+	availableTagContext string,
 	originalTags []string,
 	logger *logrus.Entry) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
@@ -90,11 +147,12 @@ func (app *App) getSuggestedTags(
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language":      likelyLanguage,
-		"AvailableTags": availableTags,
-		"OriginalTags":  originalTags,
-		"Title":         suggestedTitle,
-		"CreateNewTags": createNewTags,
+		"Language":            likelyLanguage,
+		"AvailableTags":       availableTags,
+		"AvailableTagContext": availableTagContext,
+		"OriginalTags":        originalTags,
+		"Title":               suggestedTitle,
+		"CreateNewTags":       createNewTags,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
@@ -200,9 +258,10 @@ func (app *App) getSuggestedDocumentType(
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language":               likelyLanguage,
-		"AvailableDocumentTypes": availableDocumentTypes,
-		"Title":                  suggestedTitle,
+		"Language":                     likelyLanguage,
+		"AvailableDocumentTypes":       availableDocumentTypes,
+		"AvailableDocumentTypeContext": strings.Join(availableDocumentTypes, "\n"),
+		"Title":                        suggestedTitle,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(documentTypeTemplate, templateData)
@@ -262,7 +321,7 @@ func (app *App) getSuggestedDocumentType(
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, logger *logrus.Entry) (string, error) {
+func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, generationContext suggestionGenerationContext, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
@@ -270,9 +329,11 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language": likelyLanguage,
-		"Content":  content,
-		"Title":    originalTitle,
+		"Language":                     likelyLanguage,
+		"Content":                      content,
+		"Title":                        originalTitle,
+		"AvailableTagContext":          generationContext.availableTagContext,
+		"AvailableDocumentTypeContext": generationContext.availableDocumentTypeContext,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(titleTemplate, templateData)
@@ -493,9 +554,11 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 }
 
 type suggestionGenerationContext struct {
-	availableTagNames           []string
-	availableCorrespondentNames []string
-	availableDocumentTypeNames  []string
+	availableTagNames            []string
+	availableTagContext          string
+	availableCorrespondentNames  []string
+	availableDocumentTypeNames   []string
+	availableDocumentTypeContext string
 }
 
 // generateDocumentSuggestions generates suggestions for a set of documents.
@@ -536,18 +599,22 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 	generationContext := suggestionGenerationContext{}
 
 	if suggestionRequest.GenerateTags {
-		availableTagsMap, err := app.Client.GetAllTags(ctx)
+		availableTags, err := app.Client.GetAllTagsDetailed(ctx)
 		if err != nil {
 			return suggestionGenerationContext{}, fmt.Errorf("failed to fetch available tags: %v", err)
 		}
 
-		generationContext.availableTagNames = make([]string, 0, len(availableTagsMap))
-		for tagName := range availableTagsMap {
-			if tagName == manualTag {
+		generationContext.availableTagNames = make([]string, 0, len(availableTags))
+		filteredTags := make([]Tag, 0, len(availableTags))
+		for _, tag := range availableTags {
+			if tag.Name == manualTag {
 				continue
 			}
-			generationContext.availableTagNames = append(generationContext.availableTagNames, tagName)
+			generationContext.availableTagNames = append(generationContext.availableTagNames, tag.Name)
+			filteredTags = append(filteredTags, tag)
 		}
+		slices.Sort(generationContext.availableTagNames)
+		generationContext.availableTagContext = formatTagTaxonomy(filteredTags)
 	}
 
 	if suggestionRequest.GenerateCorrespondents {
@@ -572,6 +639,8 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 		for _, docType := range availableDocumentTypes {
 			generationContext.availableDocumentTypeNames = append(generationContext.availableDocumentTypeNames, docType.Name)
 		}
+		slices.Sort(generationContext.availableDocumentTypeNames)
+		generationContext.availableDocumentTypeContext = strings.Join(generationContext.availableDocumentTypeNames, "\n")
 	}
 
 	return generationContext, nil
@@ -593,7 +662,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 
 	if suggestionRequest.GenerateTitles {
 		var err error
-		suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
+		suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, generationContext, docLogger)
 		if err != nil {
 			docLogger.Errorf("Error processing document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -602,7 +671,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 
 	if suggestionRequest.GenerateTags {
 		var err error
-		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, doc.Tags, docLogger)
+		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, generationContext.availableTagContext, doc.Tags, docLogger)
 		if err != nil {
 			logger.Errorf("Error generating tags for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)

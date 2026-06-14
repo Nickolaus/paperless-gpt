@@ -7,7 +7,11 @@ The content is likely in {{.Language}}.
 The data will be provided using an XML-like format for clarity:
 
 <available_document_types>
+{{- if .AvailableDocumentTypeContext}}
+{{.AvailableDocumentTypeContext}}
+{{- else}}
 {{.AvailableDocumentTypes | join ", "}}
+{{- end}}
 </available_document_types>
 
 <title>
