@@ -209,7 +209,7 @@ func TestRateLimitedLLM_Call_Success(t *testing.T) {
 func TestRateLimitedLLM_Call_Error(t *testing.T) {
 	mockLLM := newFailingRateLimitMock()
 	config := RateLimitConfig{
-		RequestsPerMinute: 60, // 1 per second
+		RequestsPerMinute: 0, // keep this test focused on retry behavior
 		MaxRetries:        3,
 		BackoffMaxWait:    1 * time.Second, // Short backoff for tests
 	}
@@ -227,7 +227,7 @@ func TestRateLimitedLLM_Call_Error(t *testing.T) {
 func TestRateLimitedLLM_Call_EventualSuccess(t *testing.T) {
 	mockLLM := newEventuallySuccessfulRateLimitMock(2) // Fail twice, succeed on third try
 	config := RateLimitConfig{
-		RequestsPerMinute: 60, // 1 per second
+		RequestsPerMinute: 0, // keep this test focused on retry behavior
 		MaxRetries:        3,
 		BackoffMaxWait:    1 * time.Second, // Short backoff for tests
 	}
@@ -269,7 +269,7 @@ func TestRateLimitedLLM_GenerateContent_Success(t *testing.T) {
 func TestRateLimitedLLM_GenerateContent_Error(t *testing.T) {
 	mockLLM := newFailingRateLimitMock()
 	config := RateLimitConfig{
-		RequestsPerMinute: 60, // 1 per second
+		RequestsPerMinute: 0, // keep this test focused on retry behavior
 		MaxRetries:        3,
 		BackoffMaxWait:    1 * time.Second, // Short backoff for tests
 	}
@@ -294,7 +294,7 @@ func TestRateLimitedLLM_GenerateContent_Error(t *testing.T) {
 func TestRateLimitedLLM_GenerateContent_EventualSuccess(t *testing.T) {
 	mockLLM := newEventuallySuccessfulRateLimitMock(2) // Fail twice, succeed on third try
 	config := RateLimitConfig{
-		RequestsPerMinute: 60, // 1 per second
+		RequestsPerMinute: 0, // keep this test focused on retry behavior
 		MaxRetries:        3,
 		BackoffMaxWait:    1 * time.Second, // Short backoff for tests
 	}

@@ -22,16 +22,14 @@ type RateLimitedLLM struct {
 
 // Call implements the llms.Model interface
 func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
-	if r.rateLimiter != nil {
-		if err := r.rateLimiter.Wait(ctx); err != nil {
-			return "", fmt.Errorf("rate limiter wait failed: %w", err)
-		}
-	}
-
 	var lastErr error
 	attempt := 0
 
 	for {
+		if err := r.waitRateLimit(ctx); err != nil {
+			return "", err
+		}
+
 		response, err := r.llm.Call(ctx, prompt, options...)
 		if err == nil {
 			return response, nil
@@ -113,17 +111,14 @@ func NewRateLimitedLLM(llm llms.Model, config RateLimitConfig) *RateLimitedLLM {
 
 // GenerateContent implements the LLM interface with rate limiting and retries
 func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	if r.rateLimiter != nil {
-		// Wait for rate limiter
-		if err := r.rateLimiter.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("rate limiter wait failed: %w", err)
-		}
-	}
-
 	var lastErr error
 	attempt := 0
 
 	for {
+		if err := r.waitRateLimit(ctx); err != nil {
+			return nil, err
+		}
+
 		resp, err := r.llm.GenerateContent(ctx, messages, options...)
 		if err == nil {
 			// Return the pointer response directly
@@ -155,4 +150,14 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 			lastErr = err
 		}
 	}
+}
+
+func (r *RateLimitedLLM) waitRateLimit(ctx context.Context) error {
+	if r.rateLimiter == nil {
+		return nil
+	}
+	if err := r.rateLimiter.Wait(ctx); err != nil {
+		return fmt.Errorf("rate limiter wait failed: %w", err)
+	}
+	return nil
 }

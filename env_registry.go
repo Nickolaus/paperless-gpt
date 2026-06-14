@@ -72,7 +72,7 @@ var envRegistry = []EnvVar{
 	{Name: "LLM_MAX_RETRIES", Category: "LLM", Secret: false, Default: "3", Description: "Maximum retry attempts for failed main LLM requests."},
 	{Name: "LLM_MODEL", Category: "LLM", Secret: false, Default: "", Description: "AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`)."},
 	{Name: "LLM_PROVIDER", Category: "LLM", Secret: false, Default: "", Description: "AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`)."},
-	{Name: "LLM_REQUESTS_PER_MINUTE", Category: "LLM", Secret: false, Default: "120", Description: "Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load."},
+	{Name: "LLM_REQUESTS_PER_MINUTE", Category: "LLM", Secret: false, Default: "120", Description: "Maximum requests per minute for the main LLM. Applies to initial requests and retry attempts. Useful for managing API costs, provider rate limits, or local LLM load."},
 	{Name: "LOCAL_HOCR_PATH", Category: "PDF & hOCR", Secret: false, Default: "/app/hocr", Description: "Path where hOCR files will be saved when hOCR generation is enabled."},
 	{Name: "LOCAL_PDF_PATH", Category: "PDF & hOCR", Secret: false, Default: "/app/pdf", Description: "Path where PDF files will be saved when PDF generation is enabled."},
 	{Name: "LOG_LEVEL", Category: "Server & container", Secret: false, Default: "info", Description: "Application log level (`info`, `debug`, `warn`, `error`)."},
