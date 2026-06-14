@@ -4,7 +4,11 @@ import {
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React from "react";
-import { DocumentSuggestion, TagOption } from "../DocumentProcessor";
+import {
+  DocumentSuggestion,
+  DocumentTypeOption,
+  TagOption,
+} from "../DocumentProcessor";
 import Button from "./ui/Button";
 import {
   Decision,
@@ -17,6 +21,8 @@ import SuggestionFields from "./review/SuggestionFields";
 interface SuggestionCardProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
+  availableDocumentTypes: DocumentTypeOption[];
+  createNewDocumentTypesEnabled: boolean;
   decision: Decision;
   excluded: Set<FieldKey>;
   onToggleField: (docId: number, key: FieldKey) => void;
@@ -30,6 +36,8 @@ interface SuggestionCardProps {
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   availableTags,
+  availableDocumentTypes,
+  createNewDocumentTypesEnabled,
   decision,
   excluded,
   onToggleField,
@@ -98,6 +106,8 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
         <SuggestionFields
           suggestion={suggestion}
           availableTags={availableTags}
+          availableDocumentTypes={availableDocumentTypes}
+          createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           excluded={excluded}
           onToggleField={onToggleField}
           handlers={handlers}

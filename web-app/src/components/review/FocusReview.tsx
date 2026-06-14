@@ -6,7 +6,11 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import React, { useRef, useState } from "react";
-import { DocumentSuggestion, TagOption } from "../../DocumentProcessor";
+import {
+  DocumentSuggestion,
+  DocumentTypeOption,
+  TagOption,
+} from "../../DocumentProcessor";
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import {
@@ -23,6 +27,8 @@ interface FocusReviewProps {
   decisions: Record<number, Decision>;
   excludedMap: Record<number, Set<FieldKey>>;
   availableTags: TagOption[];
+  availableDocumentTypes: DocumentTypeOption[];
+  createNewDocumentTypesEnabled: boolean;
   handlers: SuggestionEditHandlers;
   onToggleField: (docId: number, key: FieldKey) => void;
   onApply: (docId: number) => void;
@@ -51,6 +57,8 @@ const FocusReview: React.FC<FocusReviewProps> = ({
   decisions,
   excludedMap,
   availableTags,
+  availableDocumentTypes,
+  createNewDocumentTypesEnabled,
   handlers,
   onToggleField,
   onApply,
@@ -220,6 +228,8 @@ const FocusReview: React.FC<FocusReviewProps> = ({
               <SuggestionFields
                 suggestion={item}
                 availableTags={availableTags}
+                availableDocumentTypes={availableDocumentTypes}
+                createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
                 excluded={excluded}
                 onToggleField={onToggleField}
                 handlers={handlers}

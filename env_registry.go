@@ -49,6 +49,7 @@ var envRegistry = []EnvVar{
 	{Name: "CORRESPONDENT_BLACK_LIST", Category: "Processing & limits", Secret: false, Default: "", Description: "A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`."},
 	{Name: "CREATE_LOCAL_HOCR", Category: "PDF & hOCR", Secret: false, Default: "false", Description: "Whether to save hOCR files locally."},
 	{Name: "CREATE_LOCAL_PDF", Category: "PDF & hOCR", Secret: false, Default: "false", Description: "Whether to save enhanced PDFs locally."},
+	{Name: "CREATE_NEW_DOCUMENT_TYPES", Category: "Tags & automation", Secret: false, Default: "false", Description: "Allow the LLM or reviewer to suggest document types that do not exist in paperless-ngx yet. New document types are created in paperless-ngx when suggestions are applied."},
 	{Name: "CREATE_NEW_TAGS", Category: "Tags & automation", Secret: false, Default: "false", Description: "Allow the LLM to suggest new tags that don't exist in paperless-ngx yet. When enabled, new tags will be created automatically in paperless-ngx."},
 	{Name: "DOCLING_IMAGE_EXPORT_MODE", Category: "OCR", Secret: false, Default: "embedded", Description: "Mode for image export. Optional; defaults to `embedded` if unset."},
 	{Name: "DOCLING_OCR_ENGINE", Category: "OCR", Secret: false, Default: "easyocr", Description: "Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`"},

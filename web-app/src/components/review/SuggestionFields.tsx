@@ -1,7 +1,11 @@
 import classNames from "classnames";
 import React from "react";
 import { ReactTags } from "react-tag-autocomplete";
-import { DocumentSuggestion, TagOption } from "../../DocumentProcessor";
+import {
+  DocumentSuggestion,
+  DocumentTypeOption,
+  TagOption,
+} from "../../DocumentProcessor";
 import {
   FieldKey,
   SuggestionEditHandlers,
@@ -92,16 +96,23 @@ const inputClasses =
 interface SuggestionFieldsProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
+  availableDocumentTypes: DocumentTypeOption[];
+  createNewDocumentTypesEnabled: boolean;
   excluded: Set<FieldKey>;
   onToggleField: (docId: number, key: FieldKey) => void;
   handlers: SuggestionEditHandlers;
   disabled?: boolean;
 }
 
+const tagEquals = (left: string, right: string) =>
+  left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
+
 /** The editable field list of one suggestion, shared by card and focus view. */
 const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
   suggestion,
   availableTags,
+  availableDocumentTypes,
+  createNewDocumentTypesEnabled,
   excluded,
   onToggleField,
   handlers,
@@ -110,6 +121,28 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
   const sortedAvailableTags = [...availableTags].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
+  const sortedAvailableDocumentTypes = [...availableDocumentTypes].sort(
+    (a, b) => a.name.localeCompare(b.name)
+  );
+  const [isCreatingDocumentType, setIsCreatingDocumentType] =
+    React.useState(false);
+  const suggestedDocumentType = suggestion.suggested_document_type?.trim() || "";
+  const suggestedDocumentTypeExists = suggestedDocumentType
+    ? sortedAvailableDocumentTypes.some((documentType) =>
+        tagEquals(documentType.name, suggestedDocumentType)
+      )
+    : false;
+  const documentTypeSelectValue = suggestedDocumentType
+    ? suggestedDocumentTypeExists
+      ? sortedAvailableDocumentTypes.find((documentType) =>
+          tagEquals(documentType.name, suggestedDocumentType)
+        )?.name || ""
+      : createNewDocumentTypesEnabled
+        ? "__new__"
+        : "__unknown__"
+    : isCreatingDocumentType
+      ? "__new__"
+      : "";
 
   return (
     <div className="divide-y divide-line">
@@ -189,17 +222,56 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
         excluded={excluded.has("document_type")}
         onToggleField={onToggleField}
       >
-        <input
-          type="text"
-          value={suggestion.suggested_document_type || ""}
-          onChange={(e) =>
-            handlers.onDocumentTypeChange(suggestion.id, e.target.value)
-          }
+        <select
+          value={documentTypeSelectValue}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "__new__") {
+              setIsCreatingDocumentType(true);
+              handlers.onDocumentTypeChange(
+                suggestion.id,
+                suggestedDocumentTypeExists ? "" : suggestedDocumentType
+              );
+            } else if (value === "__unknown__") {
+              setIsCreatingDocumentType(false);
+              handlers.onDocumentTypeChange(suggestion.id, suggestedDocumentType);
+            } else {
+              setIsCreatingDocumentType(false);
+              handlers.onDocumentTypeChange(suggestion.id, value);
+            }
+          }}
           disabled={disabled || excluded.has("document_type")}
           aria-label="Suggested document type"
-          placeholder="Document type"
           className={inputClasses}
-        />
+        >
+          <option value="">No document type</option>
+          {sortedAvailableDocumentTypes.map((documentType) => (
+            <option key={documentType.id} value={documentType.name}>
+              {documentType.name}
+            </option>
+          ))}
+          {createNewDocumentTypesEnabled && (
+            <option value="__new__">New document type...</option>
+          )}
+          {!createNewDocumentTypesEnabled &&
+            suggestedDocumentType &&
+            !suggestedDocumentTypeExists && (
+              <option value="__unknown__">{suggestedDocumentType}</option>
+            )}
+        </select>
+        {createNewDocumentTypesEnabled && documentTypeSelectValue === "__new__" && (
+          <input
+            type="text"
+            value={suggestedDocumentType}
+            onChange={(e) =>
+              handlers.onDocumentTypeChange(suggestion.id, e.target.value)
+            }
+            disabled={disabled || excluded.has("document_type")}
+            aria-label="New document type name"
+            placeholder="New document type"
+            className={classNames(inputClasses, "mt-1.5")}
+          />
+        )}
       </FieldRow>
 
       <FieldRow

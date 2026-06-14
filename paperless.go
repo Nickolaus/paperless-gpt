@@ -61,8 +61,12 @@ type CustomField struct {
 
 // DocumentType represents a document type from the Paperless-ngx API
 type DocumentType struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID                int    `json:"id,omitempty"`
+	Name              string `json:"name"`
+	MatchingAlgorithm int    `json:"matching_algorithm,omitempty"`
+	Match             string `json:"match"`
+	IsInsensitive     bool   `json:"is_insensitive"`
+	Owner             *int   `json:"owner"`
 }
 
 // Tag represents a tag from the Paperless-ngx API.
@@ -763,6 +767,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName {
 			originalFields["document_type"] = originalDoc.DocumentTypeName
 			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
+				updatedFields["document_type"] = docTypeID
+			} else if createNewDocumentTypes {
+				newDocumentType := instantiateDocumentType(document.SuggestedDocumentType)
+				docTypeID, err := client.CreateOrGetDocumentType(ctx, newDocumentType)
+				if err != nil {
+					return fmt.Errorf("error creating document type '%s': %w", document.SuggestedDocumentType, err)
+				}
+				availableDocumentTypes[document.SuggestedDocumentType] = docTypeID
 				updatedFields["document_type"] = docTypeID
 			} else {
 				// Unlike correspondents, we don't create new document types - only use existing ones
@@ -1536,6 +1548,16 @@ func instantiateCorrespondent(name string) Correspondent {
 	}
 }
 
+func instantiateDocumentType(name string) DocumentType {
+	return DocumentType{
+		Name:              name,
+		MatchingAlgorithm: 0,
+		Match:             "",
+		IsInsensitive:     true,
+		Owner:             nil,
+	}
+}
+
 // CreateOrGetCorrespondent creates a new correspondent or returns existing one if name already exists
 func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, correspondent Correspondent) (int, error) {
 	// First try to find existing correspondent
@@ -1579,6 +1601,45 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 	return createdCorrespondent.ID, nil
 }
 
+func (client *PaperlessClient) CreateOrGetDocumentType(ctx context.Context, documentType DocumentType) (int, error) {
+	documentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error fetching document types: %w", err)
+	}
+
+	for _, existingDocumentType := range documentTypes {
+		if strings.EqualFold(existingDocumentType.Name, documentType.Name) {
+			log.Infof("Using existing document type with name %s and ID %d", existingDocumentType.Name, existingDocumentType.ID)
+			return existingDocumentType.ID, nil
+		}
+	}
+
+	jsonData, err := json.Marshal(documentType)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := client.Do(ctx, "POST", "api/document_types/", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("error creating document type: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var createdDocumentType struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&createdDocumentType); err != nil {
+		return 0, err
+	}
+
+	return createdDocumentType.ID, nil
+}
+
 // CorrespondentResponse represents the response structure for correspondents
 type CorrespondentResponse struct {
 	Results []struct {
@@ -1619,7 +1680,7 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 
 // GetAllDocumentTypes retrieves all document types from the Paperless-NGX API
 func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
-	var allDocumentTypes []DocumentType
+	allDocumentTypes := []DocumentType{}
 	path := "api/document_types/?page_size=1000" // Assuming a reasonable limit
 
 	resp, err := client.Do(ctx, "GET", path, nil)

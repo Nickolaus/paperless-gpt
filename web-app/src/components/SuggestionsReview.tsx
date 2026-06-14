@@ -3,6 +3,7 @@ import axios from "axios";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   DocumentSuggestion,
+  DocumentTypeOption,
   SuggestionJobFailedDocument,
   TagOption,
 } from "../DocumentProcessor";
@@ -22,6 +23,8 @@ import {
 interface SuggestionsReviewProps {
   suggestions: DocumentSuggestion[];
   availableTags: TagOption[];
+  availableDocumentTypes: DocumentTypeOption[];
+  createNewDocumentTypesEnabled: boolean;
   filterTag: string | null;
   failedDocuments: SuggestionJobFailedDocument[];
   onRetryFailed: () => void;
@@ -32,6 +35,8 @@ interface SuggestionsReviewProps {
 const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   suggestions,
   availableTags,
+  availableDocumentTypes,
+  createNewDocumentTypesEnabled,
   filterTag,
   failedDocuments,
   onRetryFailed,
@@ -261,6 +266,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
             key={item.id}
             suggestion={item}
             availableTags={availableTags}
+            availableDocumentTypes={availableDocumentTypes}
+            createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
             decision={decisions[item.id] || "pending"}
             excluded={excludedMap[item.id] || new Set()}
             onToggleField={handleToggleField}
@@ -335,6 +342,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           decisions={decisions}
           excludedMap={excludedMap}
           availableTags={availableTags}
+          availableDocumentTypes={availableDocumentTypes}
+          createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           handlers={handlers}
           onToggleField={handleToggleField}
           onApply={handleApplyOne}

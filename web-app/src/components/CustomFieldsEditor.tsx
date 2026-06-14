@@ -10,6 +10,7 @@ interface SettingsData {
   custom_fields_enable: boolean;
   custom_fields_selected_ids: number[];
   custom_fields_write_mode: 'append' | 'replace' | 'update';
+  title_schema: string;
 }
 
 const CustomFieldsEditor: React.FC = () => {
@@ -133,6 +134,22 @@ const CustomFieldsEditor: React.FC = () => {
         <div className="md:col-span-1">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
             <h2 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">General Settings</h2>
+            <div className="mb-6">
+              <label htmlFor="titleSchema" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Title schema
+              </label>
+              <input
+                type="text"
+                id="titleSchema"
+                value={settings.title_schema}
+                onChange={(e) => handleSettingChange('title_schema', e.target.value)}
+                className="mt-2 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              />
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Available placeholders: {'{{sender}}'}, {'{{document_type}}'}, {'{{reference}}'}, {'{{subject}}'}, {'{{date}}'}, {'{{amount}}'}.
+                Keep dates out of titles when Paperless stores the created date separately.
+              </p>
+            </div>
             <div className="flex items-center mb-4">
               <input
                 type="checkbox"

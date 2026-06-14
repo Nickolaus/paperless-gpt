@@ -58,6 +58,16 @@ export interface TagOption {
   name: string;
 }
 
+export interface DocumentTypeOption {
+  id: number;
+  name: string;
+}
+
+interface DocumentTypesResponse {
+  document_types: DocumentTypeOption[];
+  create_new_document_types: boolean;
+}
+
 export interface SuggestionJobFailedDocument {
   document_id: number;
   document_title: string;
@@ -91,6 +101,11 @@ const DocumentProcessor: React.FC = () => {
     null
   );
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
+  const [availableDocumentTypes, setAvailableDocumentTypes] = useState<
+    DocumentTypeOption[]
+  >([]);
+  const [createNewDocumentTypesEnabled, setCreateNewDocumentTypesEnabled] =
+    useState(false);
   const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -121,11 +136,12 @@ const DocumentProcessor: React.FC = () => {
 
   const fetchInitialData = useCallback(async () => {
     try {
-      const [filterTagRes, documentsRes, tagsRes, customFieldsRes] =
+      const [filterTagRes, documentsRes, tagsRes, documentTypesRes, customFieldsRes] =
         await Promise.all([
           axios.get<{ tag: string }>("./api/filter-tag"),
           axios.get<Document[]>("./api/documents"),
           axios.get<Record<string, number>>("./api/tags"),
+          axios.get<DocumentTypesResponse>("./api/document_types"),
           axios.get<CustomField[]>("./api/custom_fields"),
         ]);
 
@@ -138,6 +154,10 @@ const DocumentProcessor: React.FC = () => {
         name: tag,
       }));
       setAvailableTags(tags);
+      setAvailableDocumentTypes(documentTypesRes.data.document_types || []);
+      setCreateNewDocumentTypesEnabled(
+        Boolean(documentTypesRes.data.create_new_document_types)
+      );
     } catch (err) {
       console.error("Error fetching initial data:", err);
       setError(
@@ -427,6 +447,8 @@ const DocumentProcessor: React.FC = () => {
         <SuggestionsReview
           suggestions={suggestions}
           availableTags={availableTags}
+          availableDocumentTypes={availableDocumentTypes}
+          createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           filterTag={filterTag}
           failedDocuments={failedDocuments}
           onRetryFailed={handleRetryFailed}
