@@ -203,6 +203,7 @@ type ClientInterface interface {
 	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
 	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
+	GetAllTagsDetailed(ctx context.Context) ([]Tag, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)

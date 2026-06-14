@@ -157,7 +157,7 @@ Content: {{.Content}}
 
 			// Test with the app's LLM
 			ctx := context.Background()
-			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", testLogger)
+			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", suggestionGenerationContext{}, testLogger)
 			require.NoError(t, err)
 
 			// Verify truncation
@@ -248,7 +248,7 @@ func TestTokenLimitInTagGeneration(t *testing.T) {
 	availableTags := []string{"test", "example"}
 	originalTags := []string{"original"}
 
-	_, err := app.getSuggestedTags(ctx, longContent, "Test Title", availableTags, originalTags, testLogger)
+	_, err := app.getSuggestedTags(ctx, longContent, "Test Title", availableTags, "", originalTags, testLogger)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -281,7 +281,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, "", originalTags, testLogger)
 		require.NoError(t, err)
 
 		assert.Contains(t, tags, "invoice")
@@ -294,7 +294,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, "", originalTags, testLogger)
 		require.NoError(t, err)
 
 		assert.Contains(t, tags, "invoice")
@@ -307,7 +307,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "Invoice, NEW-TAG"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, "", originalTags, testLogger)
 		require.NoError(t, err)
 
 		// Existing tag should use the available tag's casing
@@ -321,7 +321,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, , receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, "", originalTags, testLogger)
 		require.NoError(t, err)
 
 		for _, tag := range tags {
@@ -354,7 +354,7 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	// Call getSuggestedTitle
 	ctx := context.Background()
 
-	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", testLogger)
+	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", suggestionGenerationContext{}, testLogger)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -419,7 +419,7 @@ func TestPrepareSuggestionGenerationContextFetchesOnlyRequestedMetadata(t *testi
 
 	client, ok := app.Client.(*mockPaperlessClient)
 	require.True(t, ok, "Client should be *mockPaperlessClient")
-	assert.Zero(t, client.GetAllTagsCalls)
+	assert.Zero(t, client.GetAllTagsDetailedCalls)
 	assert.Zero(t, client.GetAllCorrespondentsCalls)
 	assert.Zero(t, client.GetAllDocumentTypesCalls)
 
@@ -433,12 +433,25 @@ func TestPrepareSuggestionGenerationContextFetchesOnlyRequestedMetadata(t *testi
 
 	client, ok = app.Client.(*mockPaperlessClient)
 	require.True(t, ok, "Client should be *mockPaperlessClient")
-	assert.Equal(t, 1, client.GetAllTagsCalls)
+	assert.Equal(t, 1, client.GetAllTagsDetailedCalls)
 	assert.Equal(t, 1, client.GetAllCorrespondentsCalls)
 	assert.Equal(t, 1, client.GetAllDocumentTypesCalls)
 	assert.Equal(t, []string{"invoice"}, contextData.availableTagNames)
+	assert.Equal(t, "- invoice", contextData.availableTagContext)
 	assert.Equal(t, []string{"Vendor"}, contextData.availableCorrespondentNames)
 	assert.Equal(t, []string{"Invoice"}, contextData.availableDocumentTypeNames)
+	assert.Equal(t, "Invoice", contextData.availableDocumentTypeContext)
+}
+
+func TestFormatTagTaxonomy(t *testing.T) {
+	parentID := 1
+	taxonomy := formatTagTaxonomy([]Tag{
+		{ID: 2, Name: "Maintenance", ParentID: &parentID},
+		{ID: 1, Name: "Vehicle"},
+		{ID: 3, Name: "Finance"},
+	})
+
+	assert.Equal(t, "- Finance\n- Vehicle\n  - Maintenance", taxonomy)
 }
 
 // mockPaperlessClient is a mock implementation of the ClientInterface for testing.
@@ -449,6 +462,7 @@ type mockPaperlessClient struct {
 	CorrespondentsError       error
 	DocumentTypesError        error
 	GetAllTagsCalls           int
+	GetAllTagsDetailedCalls   int
 	GetAllCorrespondentsCalls int
 	GetAllDocumentTypesCalls  int
 }
@@ -488,6 +502,13 @@ func (m *mockPaperlessClient) GetAllTags(ctx context.Context) (map[string]int, e
 		return nil, m.TagsError
 	}
 	return map[string]int{"invoice": 1, manualTag: 2}, nil
+}
+func (m *mockPaperlessClient) GetAllTagsDetailed(ctx context.Context) ([]Tag, error) {
+	m.GetAllTagsDetailedCalls++
+	if m.TagsError != nil {
+		return nil, m.TagsError
+	}
+	return []Tag{{ID: 1, Name: "invoice"}, {ID: 2, Name: manualTag}}, nil
 }
 func (m *mockPaperlessClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
 	m.GetAllCorrespondentsCalls++
