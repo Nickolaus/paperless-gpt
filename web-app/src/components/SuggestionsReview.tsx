@@ -7,7 +7,8 @@ interface SuggestionsReviewProps {
   availableTags: TagOption[];
   onTitleChange: (docId: number, title: string) => void;
   onTagAddition: (docId: number, tag: TagOption) => void;
-  onTagDeletion: (docId: number, index: number) => void;
+  onTagDeletion: (docId: number, tag: string) => void;
+  onTagRestore: (docId: number, tag: string) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
   onDocumentTypeChange: (docId: number, documentType: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
@@ -23,6 +24,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onTitleChange,
   onTagAddition,
   onTagDeletion,
+  onTagRestore,
   onCorrespondentChange,
   onDocumentTypeChange,
   onCreatedDateChange,
@@ -44,6 +46,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           onTitleChange={onTitleChange}
           onTagAddition={onTagAddition}
           onTagDeletion={onTagDeletion}
+          onTagRestore={onTagRestore}
           onCorrespondentChange={onCorrespondentChange}
           onDocumentTypeChange={onDocumentTypeChange}
           onCreatedDateChange={onCreatedDateChange}

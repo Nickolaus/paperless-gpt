@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -523,7 +524,15 @@ func TestUpdateDocuments(t *testing.T) {
 
 	updatePath := fmt.Sprintf("/api/documents/%d/", documents[0].ID)
 	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
-		// Verify the request method
+		if r.Method == "GET" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":   documents[0].ID,
+				"tags": []int{idTag1, idTag3, 3, 5},
+			})
+			return
+		}
+
 		assert.Equal(t, "PATCH", r.Method)
 
 		// Read and parse the request body
@@ -551,6 +560,109 @@ func TestUpdateDocuments(t *testing.T) {
 	ctx := context.Background()
 	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
 	require.NoError(t, err)
+}
+
+func TestUpdateDocumentsUsesExplicitTagAddRemove(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	document := DocumentSuggestion{
+		ID: 42,
+		OriginalDocument: Document{
+			ID:    42,
+			Title: "Tagged document",
+			Tags:  []string{"existing", "remove-me"},
+		},
+		KeepOriginalTags: true,
+		AddTags:          []string{"suggested"},
+		RemoveTags:       []string{"remove-me"},
+	}
+
+	tagsResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 1, "name": "existing"},
+			{"id": 2, "name": "suggested"},
+			{"id": 3, "name": "remove-me"},
+		},
+		"next": nil,
+	}
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(tagsResponse)
+	})
+
+	updatePath := fmt.Sprintf("/api/documents/%d/", document.ID)
+	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":   document.ID,
+				"tags": []int{1, 3},
+			})
+			return
+		}
+
+		assert.Equal(t, "PATCH", r.Method)
+		bodyBytes, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		defer r.Body.Close()
+
+		var updatedFields map[string]interface{}
+		require.NoError(t, json.Unmarshal(bodyBytes, &updatedFields))
+		assert.Equal(t, map[string]interface{}{
+			"tags": []interface{}{float64(1), float64(2)},
+		}, updatedFields)
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{document}, env.db, false)
+	require.NoError(t, err)
+}
+
+func TestUpdateDocumentsRejectsStaleTagSnapshot(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	document := DocumentSuggestion{
+		ID: 77,
+		OriginalDocument: Document{
+			ID:    77,
+			Title: "Stale tags",
+			Tags:  []string{"existing"},
+		},
+		KeepOriginalTags: true,
+		AddTags:          []string{"suggested"},
+	}
+
+	tagsResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 1, "name": "existing"},
+			{"id": 2, "name": "suggested"},
+			{"id": 3, "name": "changed-elsewhere"},
+		},
+		"next": nil,
+	}
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(tagsResponse)
+	})
+
+	updatePath := fmt.Sprintf("/api/documents/%d/", document.ID)
+	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "GET", r.Method)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":   document.ID,
+			"tags": []int{1, 3},
+		})
+	})
+
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{document}, env.db, false)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrDocumentTagsChanged))
 }
 
 func TestUpdateDocumentsRetriesFieldsIndividuallyAfterCombinedFailure(t *testing.T) {

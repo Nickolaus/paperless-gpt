@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -29,6 +30,8 @@ import (
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
+
+var ErrDocumentTagsChanged = errors.New("document tags changed since suggestions were generated")
 
 // PaperlessClient struct to interact with the Paperless-NGX API
 type PaperlessClient struct {
@@ -151,6 +154,34 @@ func hasSameTags(original, suggested []string) bool {
 	}
 
 	return true
+}
+
+func resolveFinalTagNames(document DocumentSuggestion) []string {
+	finalTagNames := slices.Clone(document.OriginalDocument.Tags)
+
+	if len(document.AddTags) > 0 || document.KeepOriginalTags {
+		finalTagNames = append(finalTagNames, document.SuggestedTags...)
+		finalTagNames = append(finalTagNames, document.AddTags...)
+	} else if len(document.SuggestedTags) > 0 {
+		finalTagNames = slices.Clone(document.SuggestedTags)
+	}
+
+	var cleanedTags []string
+	for _, tagName := range finalTagNames {
+		isRemoved := false
+		for _, tagToRemove := range document.RemoveTags {
+			if strings.EqualFold(tagName, tagToRemove) {
+				isRemoved = true
+				break
+			}
+		}
+		if !isRemoved {
+			cleanedTags = append(cleanedTags, tagName)
+		}
+	}
+
+	slices.Sort(cleanedTags)
+	return slices.Compact(cleanedTags)
 }
 
 // NewPaperlessClient creates a new instance of PaperlessClient with a default HTTP client
@@ -540,6 +571,39 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}, nil
 }
 
+func (client *PaperlessClient) GetDocumentTagNames(ctx context.Context, documentID int, availableTags map[string]int) ([]string, error) {
+	path := fmt.Sprintf("api/documents/%d/", documentID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	var documentResponse GetDocumentApiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&documentResponse); err != nil {
+		return nil, err
+	}
+
+	tagNamesByID := make(map[int]string, len(availableTags))
+	for tagName, tagID := range availableTags {
+		tagNamesByID[tagID] = tagName
+	}
+
+	tagNames := make([]string, 0, len(documentResponse.Tags))
+	for _, tagID := range documentResponse.Tags {
+		if tagName, exists := tagNamesByID[tagID]; exists {
+			tagNames = append(tagNames, tagName)
+		}
+	}
+
+	return tagNames, nil
+}
+
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	availableTags, err := client.GetAllTags(ctx)
@@ -569,36 +633,20 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		originalFields := make(map[string]interface{})
 
 		// --- TAGS ---
-		finalTagNames := originalDoc.Tags
-		if len(document.SuggestedTags) > 0 {
-			if document.KeepOriginalTags {
-				finalTagNames = append(finalTagNames, document.SuggestedTags...)
-			} else {
-				finalTagNames = document.SuggestedTags
-			}
-		}
-		var cleanedTags []string
-		for _, tagName := range finalTagNames {
-			isRemoved := false
-			for _, tagToRemove := range document.RemoveTags {
-				if strings.EqualFold(tagName, tagToRemove) {
-					isRemoved = true
-					break
-				}
-			}
-			if !isRemoved {
-				cleanedTags = append(cleanedTags, tagName)
-			}
-		}
-		finalTagNames = cleanedTags
-
-		slices.Sort(finalTagNames)
-		finalTagNames = slices.Compact(finalTagNames)
+		finalTagNames := resolveFinalTagNames(document)
 
 		log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
 
 		// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
+			currentTags, err := client.GetDocumentTagNames(ctx, documentID, availableTags)
+			if err != nil {
+				return fmt.Errorf("error checking current tags for document %d: %w", documentID, err)
+			}
+			if !hasSameTags(originalDoc.Tags, currentTags) {
+				return fmt.Errorf("%w for document %d", ErrDocumentTagsChanged, documentID)
+			}
+
 			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {

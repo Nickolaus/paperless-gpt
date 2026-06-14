@@ -7,7 +7,8 @@ interface SuggestionCardProps {
   availableTags: TagOption[];
   onTitleChange: (docId: number, title: string) => void;
   onTagAddition: (docId: number, tag: TagOption) => void;
-  onTagDeletion: (docId: number, index: number) => void;
+  onTagDeletion: (docId: number, tag: string) => void;
+  onTagRestore: (docId: number, tag: string) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
   onDocumentTypeChange: (docId: number, documentType: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
@@ -20,6 +21,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTitleChange,
   onTagAddition,
   onTagDeletion,
+  onTagRestore,
   onCorrespondentChange,
   onDocumentTypeChange,
   onCreatedDateChange,
@@ -28,6 +30,50 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const sortedAvailableTags = [...availableTags].sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
   const originalValue = (value?: string) => value?.trim() || "Empty";
+  const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
+  const includesTag = (tags: string[], tag: string) => tags.some((candidate) => tagEquals(candidate, tag));
+  const availableTagNames = availableTags.map((tag) => tag.name);
+  const selectedTags = suggestion.suggested_tags || [];
+  const originalTags = document.tags || [];
+  const keptTags = originalTags.filter((tag) => includesTag(selectedTags, tag));
+  const removedTags = (suggestion.remove_tags || []).filter((tag) => includesTag(originalTags, tag) && !includesTag(selectedTags, tag));
+  const addedTags = selectedTags.filter((tag) => !includesTag(originalTags, tag));
+  const suggestedExistingTags = addedTags.filter((tag) => includesTag(availableTagNames, tag));
+  const newTags = addedTags.filter((tag) => !includesTag(availableTagNames, tag));
+
+  const renderTagList = (
+    tags: string[],
+    emptyText: string,
+    chipClassName: string,
+    action?: (tag: string) => { label: string; onClick: () => void; className: string }
+  ) => {
+    if (tags.length === 0) {
+      return <p className="text-xs text-gray-500 dark:text-gray-400">{emptyText}</p>;
+    }
+
+    return (
+      <div className="flex flex-wrap gap-2">
+        {tags.map((tag) => {
+          const tagAction = action?.(tag);
+          return (
+            <span key={tag} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${chipClassName}`}>
+              <span>{tag}</span>
+              {tagAction && (
+                <button
+                  type="button"
+                  onClick={tagAction.onClick}
+                  className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tagAction.className}`}
+                  aria-label={`${tagAction.label} ${tag}`}
+                >
+                  {tagAction.label}
+                </button>
+              )}
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
@@ -88,17 +134,66 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             Suggested Tags
           </label>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            Current: {document.tags.length > 0 ? document.tags.join(", ") : "Empty"}
+            Existing tags are kept unless you remove them. Suggested tags are added on top.
           </p>
+          <div className="mt-3 space-y-3 rounded-md border border-gray-200 p-3 dark:border-gray-700">
+            <div>
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Existing tags kept</h4>
+              {renderTagList(
+                keptTags,
+                "No existing tags will be kept.",
+                "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-100",
+                (tag) => ({
+                  label: "Remove",
+                  onClick: () => onTagDeletion(suggestion.id, tag),
+                  className: "bg-gray-200 text-gray-700 hover:bg-red-100 hover:text-red-700 dark:bg-gray-600 dark:text-gray-100 dark:hover:bg-red-900 dark:hover:text-red-100",
+                })
+              )}
+            </div>
+            <div>
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Suggested existing tags</h4>
+              {renderTagList(
+                suggestedExistingTags,
+                "No existing Paperless tags were added.",
+                "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100",
+                (tag) => ({
+                  label: "Remove",
+                  onClick: () => onTagDeletion(suggestion.id, tag),
+                  className: "bg-blue-200 text-blue-800 hover:bg-red-100 hover:text-red-700 dark:bg-blue-800 dark:text-blue-100 dark:hover:bg-red-900 dark:hover:text-red-100",
+                })
+              )}
+            </div>
+            <div>
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-yellow-700 dark:text-yellow-300">New tags</h4>
+              {renderTagList(
+                newTags,
+                "No new tags will be created.",
+                "bg-yellow-100 text-yellow-900 dark:bg-yellow-900 dark:text-yellow-100",
+                (tag) => ({
+                  label: "Remove",
+                  onClick: () => onTagDeletion(suggestion.id, tag),
+                  className: "bg-yellow-200 text-yellow-900 hover:bg-red-100 hover:text-red-700 dark:bg-yellow-800 dark:text-yellow-100 dark:hover:bg-red-900 dark:hover:text-red-100",
+                })
+              )}
+            </div>
+            <div>
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">Removed tags</h4>
+              {renderTagList(
+                removedTags,
+                "No existing tags will be removed.",
+                "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100",
+                (tag) => ({
+                  label: "Keep",
+                  onClick: () => onTagRestore(suggestion.id, tag),
+                  className: "bg-red-200 text-red-800 no-underline hover:bg-green-100 hover:text-green-700 dark:bg-red-800 dark:text-red-100 dark:hover:bg-green-900 dark:hover:text-green-100",
+                })
+              )}
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Add another tag</span>
           <ReactTags
-            selected={
-              suggestion.suggested_tags?.map((tag, index) => ({
-                id: index.toString(),
-                name: tag,
-                label: tag,
-                value: index.toString(),
-              })) || []
-            }
+            selected={[]}
             suggestions={sortedAvailableTags.map((tag) => ({
               id: tag.id,
               name: tag.name,
@@ -108,10 +203,10 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             onAdd={(tag) =>
               onTagAddition(suggestion.id, {
                 id: String(tag.label),
-                name: String(tag.value),
+                name: String(tag.label),
               })
             }
-            onDelete={(index) => onTagDeletion(suggestion.id, index)}
+            onDelete={() => undefined}
             allowNew={true}
             placeholderText="Add a tag"
             classNames={{
@@ -132,6 +227,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               highlight: "react-tags__highlight dark:bg-gray-800",
             }}
           />
+          </div>
         </div>
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

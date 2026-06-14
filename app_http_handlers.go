@@ -304,6 +304,11 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 
 	err := app.Client.UpdateDocuments(ctx, documents, app.Database, false)
 	if err != nil {
+		if errors.Is(err, ErrDocumentTagsChanged) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			log.Warnf("Document update conflict: %v", err)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error updating documents: %v", err)})
 		log.Errorf("Error updating documents: %v", err)
 		return

@@ -53,6 +53,9 @@ export interface DocumentSuggestion {
   suggested_created_date?: string;
   suggested_custom_fields?: CustomFieldSuggestion[];
   field_errors?: Record<string, string>;
+  keep_original_tags?: boolean;
+  remove_tags?: string[];
+  add_tags?: string[];
 }
 
 export interface TagOption {
@@ -166,6 +169,23 @@ const suggestionPresetOptions: Array<{
     description: "Choose individual fields manually.",
   },
 ];
+
+const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
+
+const includesTag = (tags: string[] | undefined, tag: string) =>
+  Boolean(tags?.some((candidate) => tagEquals(candidate, tag)));
+
+const uniqueTags = (tags: string[]) =>
+  tags.reduce<string[]>((unique, tag) => {
+    const trimmedTag = tag.trim();
+    if (trimmedTag && !includesTag(unique, trimmedTag)) {
+      unique.push(trimmedTag);
+    }
+    return unique;
+  }, []);
+
+const buildSelectedTags = (originalTags: string[], addTags: string[], removeTags: string[]) =>
+  uniqueTags([...originalTags, ...addTags]).filter((tag) => !includesTag(removeTags, tag));
 
 const loadPersistedWorkflowState = (): Partial<PersistedWorkflowState> => {
   try {
@@ -300,14 +320,27 @@ const DocumentProcessor: React.FC = () => {
 
   const processSuggestionResults = useCallback((data: DocumentSuggestion[]) => {
     const customFieldMap = new Map((allCustomFields || []).map((cf) => [cf.id, cf.name]));
-    const processedSuggestions = data.map((suggestion) => ({
-      ...suggestion,
-      suggested_custom_fields: suggestion.suggested_custom_fields?.map((cf) => ({
-        ...cf,
-        name: customFieldMap.get(cf.id) ?? cf.name ?? "Unknown Field",
-        isSelected: true,
-      })),
-    }));
+    const processedSuggestions = data.map((suggestion) => {
+      const originalTags = suggestion.original_document.tags || [];
+      const suggestedTags = suggestion.suggested_tags || [];
+      const existingAddTags = suggestion.add_tags || [];
+      const suggestedAddTags = suggestedTags.filter((tag) => !includesTag(originalTags, tag));
+      const addTags = uniqueTags([...existingAddTags, ...suggestedAddTags]);
+      const removeTags = uniqueTags(suggestion.remove_tags || []);
+
+      return {
+        ...suggestion,
+        keep_original_tags: true,
+        add_tags: addTags,
+        remove_tags: removeTags,
+        suggested_tags: buildSelectedTags(originalTags, addTags, removeTags),
+        suggested_custom_fields: suggestion.suggested_custom_fields?.map((cf) => ({
+          ...cf,
+          name: customFieldMap.get(cf.id) ?? cf.name ?? "Unknown Field",
+          isSelected: true,
+        })),
+      };
+    });
 
     setSuggestions(processedSuggestions);
     setActiveStep("review");
@@ -831,7 +864,11 @@ const DocumentProcessor: React.FC = () => {
       setActiveStep("select");
     } catch (err) {
       console.error("Error updating documents:", err);
-      setError("Failed to update documents.");
+      if (axios.isAxiosError(err) && typeof err.response?.data?.error === "string") {
+        setError(err.response.data.error);
+      } else {
+        setError("Failed to update documents.");
+      }
     } finally {
       setUpdating(false);
     }
@@ -839,11 +876,24 @@ const DocumentProcessor: React.FC = () => {
 
   const handleTagAddition = (docId: number, tag: TagOption) => {
     setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId
-          ? { ...doc, suggested_tags: [...(doc.suggested_tags || []), tag.name] }
-          : doc
-      )
+      prevSuggestions.map((doc) => {
+        if (doc.id !== docId) return doc;
+
+        const originalTags = doc.original_document.tags || [];
+        const tagName = tag.name;
+        const removeTags = uniqueTags(doc.remove_tags || []).filter((removedTag) => !tagEquals(removedTag, tagName));
+        const addTags = includesTag(originalTags, tagName)
+          ? uniqueTags(doc.add_tags || [])
+          : uniqueTags([...(doc.add_tags || []), tagName]);
+
+        return {
+          ...doc,
+          keep_original_tags: true,
+          add_tags: addTags,
+          remove_tags: removeTags,
+          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags),
+        };
+      })
     );
   };
 
@@ -862,13 +912,45 @@ const DocumentProcessor: React.FC = () => {
     );
   };
 
-  const handleTagDeletion = (docId: number, index: number) => {
+  const handleTagDeletion = (docId: number, tagName: string) => {
     setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId
-          ? { ...doc, suggested_tags: doc.suggested_tags?.filter((_, i) => i !== index) }
-          : doc
-      )
+      prevSuggestions.map((doc) => {
+        if (doc.id !== docId) return doc;
+
+        const originalTags = doc.original_document.tags || [];
+        const addTags = uniqueTags(doc.add_tags || []).filter((addedTag) => !tagEquals(addedTag, tagName));
+        const removeTags = includesTag(originalTags, tagName)
+          ? uniqueTags([...(doc.remove_tags || []), tagName])
+          : uniqueTags(doc.remove_tags || []);
+
+        return {
+          ...doc,
+          keep_original_tags: true,
+          add_tags: addTags,
+          remove_tags: removeTags,
+          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags),
+        };
+      })
+    );
+  };
+
+  const handleTagRestore = (docId: number, tagName: string) => {
+    setSuggestions((prevSuggestions) =>
+      prevSuggestions.map((doc) => {
+        if (doc.id !== docId) return doc;
+
+        const originalTags = doc.original_document.tags || [];
+        const addTags = uniqueTags(doc.add_tags || []);
+        const removeTags = uniqueTags(doc.remove_tags || []).filter((removedTag) => !tagEquals(removedTag, tagName));
+
+        return {
+          ...doc,
+          keep_original_tags: true,
+          add_tags: addTags,
+          remove_tags: removeTags,
+          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags),
+        };
+      })
     );
   };
 
@@ -967,6 +1049,7 @@ const DocumentProcessor: React.FC = () => {
           onTitleChange={handleTitleChange}
           onTagAddition={handleTagAddition}
           onTagDeletion={handleTagDeletion}
+          onTagRestore={handleTagRestore}
           onCorrespondentChange={handleCorrespondentChange}
           onDocumentTypeChange={handleDocumentTypeChange}
           onCreatedDateChange={handleCreatedDateChange}
