@@ -74,7 +74,13 @@ func (store *JobStore) addJob(job *Job) {
 	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
 	store.pruneTerminalJobsLocked(time.Now(), ocrJobRetention(), ocrJobMaxTerminal())
-	logger.Infof("Job added: %v", job)
+	logger.WithFields(logrus.Fields{
+		"job_id":      job.ID,
+		"document_id": job.DocumentID,
+		"status":      job.Status,
+		"pages_done":  job.PagesDone,
+		"total_pages": job.TotalPages,
+	}).Info("Job added")
 }
 
 func cloneJob(job *Job) Job {
@@ -216,7 +222,14 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job status updated: %v", job)
+		logger.WithFields(logrus.Fields{
+			"job_id":        job.ID,
+			"document_id":   job.DocumentID,
+			"status":        job.Status,
+			"pages_done":    job.PagesDone,
+			"total_pages":   job.TotalPages,
+			"result_length": len(job.Result),
+		}).Info("Job status updated")
 	}
 }
 
@@ -226,7 +239,13 @@ func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
 	if job, exists := store.jobs[jobID]; exists {
 		job.PagesDone = pagesDone
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job pages done updated: %v", job)
+		logger.WithFields(logrus.Fields{
+			"job_id":      job.ID,
+			"document_id": job.DocumentID,
+			"status":      job.Status,
+			"pages_done":  job.PagesDone,
+			"total_pages": job.TotalPages,
+		}).Info("Job pages done updated")
 	}
 }
 

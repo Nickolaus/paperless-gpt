@@ -286,6 +286,10 @@ const DocumentProcessor: React.FC = () => {
     const result = ocrResults[documentId];
     return Boolean(result?.combinedText && !result.saved);
   });
+  const unsavedOCRContentCount = selectedDocuments.filter((documentId) => {
+    const result = ocrResults[documentId];
+    return Boolean(result?.combinedText && !result.saved);
+  }).length;
 
   useEffect(() => {
     localStorage.setItem(
@@ -998,7 +1002,7 @@ const DocumentProcessor: React.FC = () => {
                         <div className="flex gap-3">
                           <span
                             aria-hidden="true"
-                            className={`mt-0.5 h-5 w-5 rounded-full border ${checked ? "border-blue-600 bg-blue-600" : "border-gray-400"}`}
+                            className={`mt-0.5 h-5 w-5 shrink-0 rounded-full border ${checked ? "border-blue-600 bg-blue-600" : "border-gray-400"}`}
                           />
                           <div>
                             <RadioGroup.Label as="p" className="font-medium text-gray-900 dark:text-gray-100">
@@ -1271,14 +1275,16 @@ const DocumentProcessor: React.FC = () => {
 
               {allSelectedOCRComplete && (
                 <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-700">
-                  <button
-                    type="button"
-                    onClick={handleSaveAllOCRContent}
-                    disabled={savingOCRDocumentId !== null || !hasUnsavedOCRContent}
-                    className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Save all OCR content
-                  </button>
+                  {unsavedOCRContentCount > 1 && (
+                    <button
+                      type="button"
+                      onClick={handleSaveAllOCRContent}
+                      disabled={savingOCRDocumentId !== null || !hasUnsavedOCRContent}
+                      className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Save all unsaved OCR content
+                    </button>
+                  )}
                   {workflowModeUsesSuggestions && (
                     <>
                       <button
