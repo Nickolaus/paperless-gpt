@@ -31,6 +31,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
 }) => {
+  const [isCreatingDocumentType, setIsCreatingDocumentType] = React.useState(false);
   const sortedAvailableTags = [...availableTags].sort((a, b) => a.name.localeCompare(b.name));
   const sortedAvailableDocumentTypes = [...availableDocumentTypes].sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
@@ -49,6 +50,15 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const suggestedDocumentTypeExists = suggestedDocumentType
     ? sortedAvailableDocumentTypes.some((documentType) => tagEquals(documentType.name, suggestedDocumentType))
     : false;
+  const documentTypeSelectValue = suggestedDocumentType
+    ? suggestedDocumentTypeExists
+      ? sortedAvailableDocumentTypes.find((documentType) => tagEquals(documentType.name, suggestedDocumentType))?.name || ""
+      : createNewDocumentTypesEnabled
+        ? "__new__"
+        : "__unknown__"
+    : isCreatingDocumentType
+      ? "__new__"
+    : "";
 
   const renderTagList = (
     tags: string[],
@@ -279,19 +289,43 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               </span>
             </div>
           )}
-          <input
-            type="search"
-            list={`document-types-${suggestion.id}`}
-            value={suggestion.suggested_document_type || ""}
-            onChange={(e) => onDocumentTypeChange(suggestion.id, e.target.value)}
-            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
-            placeholder="Document Type"
-          />
-          <datalist id={`document-types-${suggestion.id}`}>
+          <select
+            value={documentTypeSelectValue}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "__new__") {
+                setIsCreatingDocumentType(true);
+                onDocumentTypeChange(suggestion.id, suggestedDocumentTypeExists ? "" : suggestedDocumentType);
+              } else if (value === "__unknown__") {
+                setIsCreatingDocumentType(false);
+                onDocumentTypeChange(suggestion.id, suggestedDocumentType);
+              } else {
+                setIsCreatingDocumentType(false);
+                onDocumentTypeChange(suggestion.id, value);
+              }
+            }}
+            className="mt-2 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+          >
+            <option value="">No document type</option>
             {sortedAvailableDocumentTypes.map((documentType) => (
-              <option key={documentType.id} value={documentType.name} />
+              <option key={documentType.id} value={documentType.name}>
+                {documentType.name}
+              </option>
             ))}
-          </datalist>
+            {createNewDocumentTypesEnabled && <option value="__new__">New document type...</option>}
+            {!createNewDocumentTypesEnabled && suggestedDocumentType && !suggestedDocumentTypeExists && (
+              <option value="__unknown__">{suggestedDocumentType}</option>
+            )}
+          </select>
+          {createNewDocumentTypesEnabled && documentTypeSelectValue === "__new__" && (
+            <input
+              type="text"
+              value={suggestedDocumentType}
+              onChange={(e) => onDocumentTypeChange(suggestion.id, e.target.value)}
+              className="mt-2 w-full rounded border border-yellow-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500 dark:border-yellow-700 dark:bg-gray-700 dark:text-gray-200"
+              placeholder="New document type"
+            />
+          )}
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Choose an existing document type. {createNewDocumentTypesEnabled ? "New values are allowed after review." : "New values are disabled and will not be created."}
           </p>

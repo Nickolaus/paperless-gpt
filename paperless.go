@@ -1479,7 +1479,7 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 
 // GetAllDocumentTypes retrieves all document types from the Paperless-NGX API
 func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
-	var allDocumentTypes []DocumentType
+	allDocumentTypes := []DocumentType{}
 	path := "api/document_types/?page_size=1000" // Assuming a reasonable limit
 
 	resp, err := client.Do(ctx, "GET", path, nil)
