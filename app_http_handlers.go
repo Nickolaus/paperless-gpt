@@ -332,10 +332,13 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 
 	// Add job to store and queue
 	jobStore.addJob(job)
-	jobQueue <- job
-
-	// Return the job ID to the client
-	c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
+	select {
+	case jobQueue <- job:
+		c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
+	default:
+		jobStore.updateJobStatus(jobID, "failed", "OCR queue is full")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "OCR queue is full, please retry"})
+	}
 }
 
 func (app *App) getJobStatusHandler(c *gin.Context) {
@@ -393,6 +396,11 @@ func (app *App) getAllJobsHandler(c *gin.Context) {
 // POST /api/ocr/jobs/:job_id/stop
 func (app *App) stopOCRJobHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
+	if jobStore.cancelPending(jobID) {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
 	jobCancellersMu.Lock()
 	cancel, exists := jobCancellers[jobID]
 	jobCancellersMu.Unlock()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/sirupsen/logrus"
@@ -40,15 +41,20 @@ type Config struct {
 	Provider string
 
 	// Mistral OCR settings
-	MistralAPIKey string
-	MistralModel  string // Optional, defaults to "mistral-ocr-latest"
+	MistralAPIKey                         string
+	MistralModel                          string // Optional, defaults to "mistral-ocr-latest"
+	MistralOCRMaxRetries                  int
+	MistralOCRBackoffMaxWait              time.Duration
+	MistralOCRRequestTimeout              time.Duration
+	MistralOCRConfidenceScoresGranularity string
+	MistralOCRTableFormat                 string
 
 	// Generic Vision LLM settings
 	VisionLLMMaxTokens   int
 	VisionLLMTemperature *float64
 
 	// Google AI (Gemini) settings
-	GoogleAIAPIKey       string
+	GoogleAIAPIKey         string
 	GoogleAIThinkingBudget *int32
 
 	// Ollama OCR-specific settings
