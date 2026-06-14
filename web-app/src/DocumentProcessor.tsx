@@ -21,6 +21,7 @@ export interface Document {
   created_date?: string;
   original_file_name?: string;
   document_type_name?: string;
+  custom_fields?: CustomFieldResponse[];
 }
 
 export interface GenerateSuggestionsRequest {
@@ -42,6 +43,12 @@ export interface CustomFieldSuggestion {
   isSelected: boolean;
 }
 
+export interface CustomFieldResponse {
+  field: number;
+  value: unknown;
+  name?: string;
+}
+
 export interface DocumentSuggestion {
   id: number;
   original_document: Document;
@@ -56,6 +63,7 @@ export interface DocumentSuggestion {
   keep_original_tags?: boolean;
   remove_tags?: string[];
   add_tags?: string[];
+  custom_fields_write_mode?: string;
 }
 
 export interface TagOption {
@@ -867,9 +875,11 @@ const DocumentProcessor: React.FC = () => {
     try {
       const payload = suggestions.map((suggestion) => {
         const { suggested_custom_fields, ...rest } = suggestion;
+        const selectedCustomFields = suggested_custom_fields?.filter((cf) => cf.isSelected);
         return {
           ...rest,
-          suggested_custom_fields: suggested_custom_fields?.filter((cf) => cf.isSelected),
+          suggested_custom_fields: selectedCustomFields,
+          custom_fields_write_mode: selectedCustomFields && selectedCustomFields.length > 0 ? "update" : rest.custom_fields_write_mode,
         };
       });
 
@@ -920,6 +930,21 @@ const DocumentProcessor: React.FC = () => {
               ...doc,
               suggested_custom_fields: doc.suggested_custom_fields?.map((cf) =>
                 cf.id === fieldId ? { ...cf, isSelected: !cf.isSelected } : cf
+              ),
+            }
+          : doc
+      )
+    );
+  };
+
+  const handleCustomFieldSuggestionValueChange = (docId: number, fieldId: number, value: string) => {
+    setSuggestions((prevSuggestions) =>
+      prevSuggestions.map((doc) =>
+        doc.id === docId
+          ? {
+              ...doc,
+              suggested_custom_fields: doc.suggested_custom_fields?.map((cf) =>
+                cf.id === fieldId ? { ...cf, value, isSelected: true } : cf
               ),
             }
           : doc
@@ -1071,6 +1096,7 @@ const DocumentProcessor: React.FC = () => {
           onDocumentTypeChange={handleDocumentTypeChange}
           onCreatedDateChange={handleCreatedDateChange}
           onCustomFieldSuggestionToggle={handleCustomFieldSuggestionToggle}
+          onCustomFieldSuggestionValueChange={handleCustomFieldSuggestionValueChange}
           onBack={resetSuggestions}
           onUpdate={handleUpdateDocuments}
           updating={updating}

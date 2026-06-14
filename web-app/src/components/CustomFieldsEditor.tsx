@@ -165,7 +165,10 @@ const CustomFieldsEditor: React.FC = () => {
 
             <fieldset disabled={!settings.custom_fields_enable} className="disabled:opacity-50">
               <div>
-                <h3 className="mb-2 font-semibold">Write Mode:</h3>
+                <h3 className="mb-2 font-semibold">Default write mode:</h3>
+                <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                  Manual review applies selected custom-field suggestions as updates, so skipped and unrelated existing fields are kept. This default is still used by background or legacy suggestion flows.
+                </p>
                 <div className="flex items-center mb-2">
                   <input
                     type="radio"

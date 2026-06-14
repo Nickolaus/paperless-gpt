@@ -15,6 +15,7 @@ interface SuggestionCardProps {
   onDocumentTypeChange: (docId: number, documentType: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
   onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
+  onCustomFieldSuggestionValueChange: (docId: number, fieldId: number, value: string) => void;
 }
 
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
@@ -30,6 +31,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onDocumentTypeChange,
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
+  onCustomFieldSuggestionValueChange,
 }) => {
   const [isCreatingDocumentType, setIsCreatingDocumentType] = React.useState(false);
   const sortedAvailableTags = [...availableTags].sort((a, b) => a.name.localeCompare(b.name));
@@ -39,6 +41,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
   const includesTag = (tags: string[], tag: string) => tags.some((candidate) => tagEquals(candidate, tag));
   const availableTagNames = availableTags.map((tag) => tag.name);
+  const originalCustomFields = new Map((document.custom_fields || []).map((field) => [field.field, field]));
   const selectedTags = suggestion.suggested_tags || [];
   const originalTags = document.tags || [];
   const keptTags = originalTags.filter((tag) => includesTag(selectedTags, tag));
@@ -92,6 +95,15 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
         })}
       </div>
     );
+  };
+  const formatCustomFieldValue = (value: unknown) => {
+    if (value === null || value === undefined || value === "") {
+      return "Empty";
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    return JSON.stringify(value);
   };
 
   return (
@@ -347,24 +359,76 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
         </div>
         {suggestion.suggested_custom_fields && suggestion.suggested_custom_fields.length > 0 && (
           <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <h4 className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Suggested Custom Fields
-            </label>
-            <div className="mt-2 space-y-2">
-              {suggestion.suggested_custom_fields?.map((field) => (
-                <div key={field.id} className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id={`custom-field-${suggestion.id}-${field.id}`}
-                    checked={field.isSelected}
-                    onChange={() => onCustomFieldSuggestionToggle(suggestion.id, field.id)}
-                    className="w-4 h-4 mr-2"
-                  />
-                  <label htmlFor={`custom-field-${suggestion.id}-${field.id}`} className="text-sm">
-                    <span className="font-semibold">{field.name}:</span> {String(field.value)}
-                  </label>
-                </div>
-              )) || []}
+            </h4>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Manual review updates only selected fields and keeps skipped or unrelated existing custom fields.
+            </p>
+            <div className="mt-3 space-y-3 rounded-md border border-gray-200 p-3 dark:border-gray-700">
+              {suggestion.suggested_custom_fields.map((field) => {
+                const originalField = originalCustomFields.get(field.id);
+                const hasOriginalValue = originalField !== undefined;
+                const originalDisplayValue = formatCustomFieldValue(originalField?.value);
+                const suggestedDisplayValue = field.value === null || field.value === undefined ? "" : String(field.value);
+                const unchanged = hasOriginalValue && originalDisplayValue === formatCustomFieldValue(field.value);
+
+                return (
+                  <div key={field.id} className="rounded-md border border-gray-100 p-3 dark:border-gray-700">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">{field.name}</div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                              unchanged
+                                ? "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-100"
+                                : hasOriginalValue
+                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                                  : "bg-yellow-100 text-yellow-900 dark:bg-yellow-900 dark:text-yellow-100"
+                            }`}
+                          >
+                            {unchanged ? "No change" : hasOriginalValue ? "Update field" : "Add field"}
+                          </span>
+                          {!field.isSelected && (
+                            <span className="inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-100">
+                              Skipped
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onCustomFieldSuggestionToggle(suggestion.id, field.id)}
+                        className={`rounded px-2.5 py-1 text-xs font-semibold ${
+                          field.isSelected
+                            ? "bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-100 dark:hover:bg-blue-800"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
+                        }`}
+                      >
+                        {field.isSelected ? "Apply" : "Skip"}
+                      </button>
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <div className="text-xs font-medium text-gray-500 dark:text-gray-400">Current value</div>
+                        <div className="mt-1 min-h-9 rounded border border-gray-200 bg-gray-50 px-2 py-1 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                          {originalDisplayValue}
+                        </div>
+                      </div>
+                      <label className="block">
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Suggested value</span>
+                        <input
+                          type="text"
+                          value={suggestedDisplayValue}
+                          onChange={(e) => onCustomFieldSuggestionValueChange(suggestion.id, field.id, e.target.value)}
+                          className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
