@@ -158,6 +158,13 @@ func resolveFinalTagNames(document DocumentSuggestion) []string {
 	return slices.Compact(cleanedTags)
 }
 
+func hasExplicitTagChange(document DocumentSuggestion) bool {
+	return document.KeepOriginalTags ||
+		len(document.SuggestedTags) > 0 ||
+		len(document.AddTags) > 0 ||
+		len(document.RemoveTags) > 0
+}
+
 // NewPaperlessClient creates a new instance of PaperlessClient with a default HTTP client
 func NewPaperlessClient(baseURL, apiToken string) *PaperlessClient {
 	cacheFolder := os.Getenv("PAPERLESS_GPT_CACHE_DIR")
@@ -607,46 +614,48 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		originalFields := make(map[string]interface{})
 
 		// --- TAGS ---
-		finalTagNames := resolveFinalTagNames(document)
+		if hasExplicitTagChange(document) {
+			finalTagNames := resolveFinalTagNames(document)
 
-		log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
+			log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
 
-		// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
-		if !hasSameTags(originalDoc.Tags, finalTagNames) {
-			currentTags, err := client.GetDocumentTagNames(ctx, documentID, availableTags)
-			if err != nil {
-				return fmt.Errorf("error checking current tags for document %d: %w", documentID, err)
-			}
-			if !hasSameTags(originalDoc.Tags, currentTags) {
-				return fmt.Errorf("%w for document %d", ErrDocumentTagsChanged, documentID)
-			}
-
-			var finalTagIDs []int
-			for _, tagName := range finalTagNames {
-				if tagID, exists := availableTags[tagName]; exists {
-					finalTagIDs = append(finalTagIDs, tagID)
-				} else if createNewTags {
-					// Create the new tag in paperless-ngx
-					newTagID, err := client.CreateTag(ctx, tagName)
-					if err != nil {
-						log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
-						continue
-					}
-					log.Infof("Document %d: Created new tag '%s' with ID %d", documentID, tagName, newTagID)
-					availableTags[tagName] = newTagID
-					finalTagIDs = append(finalTagIDs, newTagID)
+			// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
+			if !hasSameTags(originalDoc.Tags, finalTagNames) {
+				currentTags, err := client.GetDocumentTagNames(ctx, documentID, availableTags)
+				if err != nil {
+					return fmt.Errorf("error checking current tags for document %d: %w", documentID, err)
 				}
-			}
-			// Only update tags if there are remaining tags after changes
-			// Sending an empty tags array causes Paperless-NGX to return an error
-			// However, we need to track this for a potential second update
-			if len(finalTagIDs) > 0 {
-				originalFields["tags"] = originalDoc.Tags
-				updatedFields["tags"] = finalTagIDs
-			} else {
-				// Mark that we need to remove tags but can't do it in this update
-				// We'll handle this after the main update completes
-				originalFields["tags"] = originalDoc.Tags
+				if !hasSameTags(originalDoc.Tags, currentTags) {
+					return fmt.Errorf("%w for document %d", ErrDocumentTagsChanged, documentID)
+				}
+
+				var finalTagIDs []int
+				for _, tagName := range finalTagNames {
+					if tagID, exists := availableTags[tagName]; exists {
+						finalTagIDs = append(finalTagIDs, tagID)
+					} else if createNewTags {
+						// Create the new tag in paperless-ngx
+						newTagID, err := client.CreateTag(ctx, tagName)
+						if err != nil {
+							log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
+							continue
+						}
+						log.Infof("Document %d: Created new tag '%s' with ID %d", documentID, tagName, newTagID)
+						availableTags[tagName] = newTagID
+						finalTagIDs = append(finalTagIDs, newTagID)
+					}
+				}
+				// Only update tags if there are remaining tags after changes
+				// Sending an empty tags array causes Paperless-NGX to return an error
+				// However, we need to track this for a potential second update
+				if len(finalTagIDs) > 0 {
+					originalFields["tags"] = originalDoc.Tags
+					updatedFields["tags"] = finalTagIDs
+				} else {
+					// Mark that we need to remove tags but can't do it in this update
+					// We'll handle this after the main update completes
+					originalFields["tags"] = originalDoc.Tags
+				}
 			}
 		}
 

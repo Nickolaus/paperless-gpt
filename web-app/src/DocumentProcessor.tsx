@@ -136,6 +136,9 @@ const ocrJobPollIntervalMs = 1000;
 const ocrJobPollRetryMaxDelayMs = 10000;
 const suggestionJobPollIntervalMs = 1500;
 
+const isSessionExpiredError = (error: unknown): boolean =>
+  axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403);
+
 const workflowModes: Array<{
   id: WorkflowMode;
   title: string;
@@ -436,6 +439,11 @@ const DocumentProcessor: React.FC = () => {
       }
     } catch (err) {
       console.error("Error checking suggestion job status:", err);
+      if (isSessionExpiredError(err)) {
+        setError("Your session is no longer valid. Refresh the page and sign in again to continue.");
+        clearActiveSuggestionJob();
+        return;
+      }
       if (axios.isAxiosError(err) && (err.response?.status === 404 || err.response?.status === 410)) {
         setError("Suggestion job is no longer available.");
         clearActiveSuggestionJob();
@@ -744,12 +752,18 @@ const DocumentProcessor: React.FC = () => {
       }
     } catch (err) {
       console.error("Error checking OCR job status:", err);
+      if (isSessionExpiredError(err)) {
+        setError("Your session is no longer valid. Refresh the page and sign in again to continue.");
+        clearActiveOCRJob();
+        setProcessing(false);
+        return;
+      }
       ocrPollFailureCountRef.current += 1;
       const retryDelay = Math.min(ocrJobPollIntervalMs * 2 ** ocrPollFailureCountRef.current, ocrJobPollRetryMaxDelayMs);
       setError("Failed to check OCR job status. Retrying...");
       ocrPollTimeoutRef.current = setTimeout(() => pollOCRJob(jobId, documentId), retryDelay);
     }
-  }, [documents, ocrQueue, startOCRForDocument]);
+  }, [clearActiveOCRJob, documents, ocrQueue, startOCRForDocument]);
 
   useEffect(() => {
     if (ocrJobId && currentOCRDocumentId) {

@@ -730,6 +730,45 @@ func TestUpdateDocumentsRejectsStaleTagSnapshot(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrDocumentTagsChanged))
 }
 
+func TestUpdateDocumentsAllowsContentOnlyUpdateWhenTagsChanged(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	document := DocumentSuggestion{
+		ID: 78,
+		OriginalDocument: Document{
+			ID:      78,
+			Title:   "OCR rescue",
+			Content: "old OCR text",
+			Tags:    []string{"paperless-gpt", "changed-before-save"},
+		},
+		SuggestedContent: "new OCR text",
+	}
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results":[{"id":1,"name":"paperless-gpt"},{"id":2,"name":"changed-before-save"},{"id":3,"name":"changed-again"}]}`))
+	})
+
+	updatePath := fmt.Sprintf("/api/documents/%d/", document.ID)
+	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "PATCH", r.Method)
+		bodyBytes, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		defer r.Body.Close()
+
+		var updatedFields map[string]interface{}
+		err = json.Unmarshal(bodyBytes, &updatedFields)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]interface{}{"content": "new OCR text"}, updatedFields)
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{document}, env.db, false)
+	require.NoError(t, err)
+}
+
 func TestUpdateDocumentsRetriesFieldsIndividuallyAfterCombinedFailure(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()

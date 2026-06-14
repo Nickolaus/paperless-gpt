@@ -17,6 +17,9 @@ const activeOCRDocumentStorageKey = "paperless-gpt-active-ocr-document-id";
 const ocrJobPollIntervalMs = 1000;
 const ocrJobPollRetryMaxDelayMs = 10000;
 
+const isSessionExpiredError = (error: unknown): boolean =>
+  axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403);
+
 const ExperimentalOCR: React.FC = () => {
   const [documentId, setDocumentId] = useState(() => Number(localStorage.getItem(activeOCRDocumentStorageKey) || 0));
   const [jobId, setJobId] = useState(() => localStorage.getItem(activeOCRJobStorageKey) || '');
@@ -144,6 +147,15 @@ const ExperimentalOCR: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
+      if (isSessionExpiredError(err)) {
+        setError("Your session is no longer valid. Refresh the page and sign in again to continue.");
+        localStorage.removeItem(activeOCRJobStorageKey);
+        localStorage.removeItem(activeOCRDocumentStorageKey);
+        setJobId('');
+        setJobStatus('idle');
+        setClientStatus('idle');
+        return;
+      }
       pollFailureCountRef.current += 1;
       const retryDelay = Math.min(ocrJobPollIntervalMs * 2 ** pollFailureCountRef.current, ocrJobPollRetryMaxDelayMs);
       setError('Failed to check job status. Retrying...');
