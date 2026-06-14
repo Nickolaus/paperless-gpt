@@ -36,6 +36,7 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+	APIVersion  string
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -169,6 +170,7 @@ func NewPaperlessClient(baseURL, apiToken string) *PaperlessClient {
 		APIToken:    apiToken,
 		HTTPClient:  httpClient,
 		CacheFolder: cacheFolder,
+		APIVersion:  os.Getenv("PAPERLESS_API_VERSION"),
 	}
 }
 
@@ -180,6 +182,9 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
+	if client.APIVersion != "" && strings.HasPrefix(path, "api/") {
+		req.Header.Set("Accept", fmt.Sprintf("application/json; version=%s", client.APIVersion))
+	}
 
 	// Set Content-Type if body is present
 	if body != nil {
@@ -221,13 +226,13 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 				"method":       method,
 				"content-type": contentType,
 				"status-code":  resp.StatusCode,
-				"response":     string(bodyBytes),
+				"body_length":  len(bodyBytes),
 				"base-url":     client.BaseURL,
 				"request-path": path,
 				"full-headers": resp.Header,
 			}).Error("Received HTML response for API request")
 
-			return nil, fmt.Errorf("received HTML response instead of JSON (status: %d). This often indicates an SSL/TLS issue or invalid authentication. Check your PAPERLESS_URL, PAPERLESS_TOKEN and PAPERLESS_INSECURE_SKIP_VERIFY settings. Full response: %s", resp.StatusCode, string(bodyBytes))
+			return nil, fmt.Errorf("received HTML response instead of JSON (status: %d, response length: %d). This often indicates an SSL/TLS issue or invalid authentication. Check your PAPERLESS_URL, PAPERLESS_TOKEN and PAPERLESS_INSECURE_SKIP_VERIFY settings", resp.StatusCode, len(bodyBytes))
 		}
 	}
 
@@ -759,11 +764,27 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if err != nil {
 			return fmt.Errorf("error updating document %d: %w", documentID, err)
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+			resp.Body.Close()
+			log.Warnf("Combined update for document %d failed with status %d and response length %d; retrying fields individually", documentID, resp.StatusCode, len(bodyBytes))
+
+			appliedFields, applyErrs := client.applyDocumentFieldsIndividually(ctx, path, documentID, updatedFields)
+			if len(appliedFields) == 0 {
+				return fmt.Errorf("error updating document %d: %d, response length %d", documentID, resp.StatusCode, len(bodyBytes))
+			}
+			for field := range updatedFields {
+				if _, applied := appliedFields[field]; !applied {
+					delete(originalFields, field)
+				}
+			}
+			if len(applyErrs) > 0 {
+				log.Warnf("Document %d partially updated; %d field updates failed", documentID, len(applyErrs))
+			}
+			updatedFields = appliedFields
+		} else {
+			resp.Body.Close()
 		}
 
 		// Check if we need to remove auto/manual tags in a separate update
@@ -849,6 +870,37 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		log.Printf("Document %d updated successfully.", documentID)
 	}
 	return nil
+}
+
+func (client *PaperlessClient) applyDocumentFieldsIndividually(ctx context.Context, path string, documentID int, fields map[string]interface{}) (map[string]interface{}, []error) {
+	appliedFields := make(map[string]interface{})
+	var errs []error
+
+	for field, value := range fields {
+		jsonData, err := json.Marshal(map[string]interface{}{field: value})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("error marshalling field %s for document %d: %w", field, documentID, err))
+			continue
+		}
+
+		resp, err := client.Do(ctx, "PATCH", path, bytes.NewBuffer(jsonData))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("error updating field %s for document %d: %w", field, documentID, err))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			errs = append(errs, fmt.Errorf("error updating field %s for document %d: %d, response length %d", field, documentID, resp.StatusCode, len(bodyBytes)))
+			continue
+		}
+
+		resp.Body.Close()
+		appliedFields[field] = value
+	}
+
+	return appliedFields, errs
 }
 
 // DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images

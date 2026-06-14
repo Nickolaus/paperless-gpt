@@ -93,6 +93,21 @@ func InitializeTestDB() (*gorm.DB, error) {
 	return db, nil
 }
 
+func TestPaperlessClientAddsConfiguredAPIVersionHeader(t *testing.T) {
+	t.Setenv("PAPERLESS_API_VERSION", "10")
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/json; version=10", r.Header.Get("Accept"))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results": []}`))
+	})
+
+	_, err := env.client.GetAllTags(context.Background())
+	require.NoError(t, err)
+}
+
 // teardown closes the mock server
 func (env *testEnv) teardown() {
 	env.server.Close()
@@ -536,6 +551,66 @@ func TestUpdateDocuments(t *testing.T) {
 	ctx := context.Background()
 	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
 	require.NoError(t, err)
+}
+
+func TestUpdateDocumentsRetriesFieldsIndividuallyAfterCombinedFailure(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	document := DocumentSuggestion{
+		ID: 999,
+		OriginalDocument: Document{
+			ID:          999,
+			Title:       "Old Title",
+			Tags:        []string{"manual"},
+			CreatedDate: "1999-09-01",
+		},
+		SuggestedTitle:       "New Title",
+		SuggestedCreatedDate: "1999-09-02",
+	}
+
+	manualTag = "manual"
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results":[{"id":1,"name":"manual"}]}`))
+	})
+
+	updatePath := fmt.Sprintf("/api/documents/%d/", document.ID)
+	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		defer r.Body.Close()
+
+		var updatedFields map[string]interface{}
+		require.NoError(t, json.Unmarshal(bodyBytes, &updatedFields))
+
+		if len(updatedFields) > 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"combined update failed"}`))
+			return
+		}
+		if _, ok := updatedFields["created_date"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"created date rejected"}`))
+			return
+		}
+		if _, ok := updatedFields["title"]; ok {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		w.WriteHeader(http.StatusBadRequest)
+	})
+
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{document}, env.db, false)
+	require.NoError(t, err)
+
+	var modifications []ModificationHistory
+	require.NoError(t, env.db.Where("document_id = ?", document.ID).Find(&modifications).Error)
+	require.Len(t, modifications, 1)
+	assert.Equal(t, "title", modifications[0].ModField)
+	assert.Equal(t, "Old Title", modifications[0].PreviousValue)
+	assert.Equal(t, "New Title", modifications[0].NewValue)
 }
 
 // TestUpdateDocuments_RemovingLastTag tests the behavior when removing the last remaining tag
