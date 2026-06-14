@@ -22,6 +22,40 @@ type mockLLM struct {
 	Error      error
 }
 
+type sequenceLLM struct {
+	responses []string
+	errors    []error
+	callIndex int
+}
+
+func (m *sequenceLLM) CreateEmbedding(_ context.Context, _ []string) ([][]float32, error) {
+	return nil, nil
+}
+
+func (m *sequenceLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
+	resp, err := m.GenerateContent(ctx, []llms.MessageContent{
+		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: prompt}}},
+	}, options...)
+	if err != nil {
+		return "", err
+	}
+	return resp.Choices[0].Content, nil
+}
+
+func (m *sequenceLLM) GenerateContent(context.Context, []llms.MessageContent, ...llms.CallOption) (*llms.ContentResponse, error) {
+	index := m.callIndex
+	m.callIndex++
+	if index < len(m.errors) && m.errors[index] != nil {
+		return nil, m.errors[index]
+	}
+
+	content := "test response"
+	if index < len(m.responses) {
+		content = m.responses[index]
+	}
+	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: content}}}, nil
+}
+
 func (m *mockLLM) CreateEmbedding(_ context.Context, texts []string) ([][]float32, error) {
 	return nil, nil // Not used in these tests
 }
@@ -467,6 +501,42 @@ func TestPrepareSuggestionGenerationContextFetchesOnlyRequestedMetadata(t *testi
 	assert.Equal(t, []string{"Vendor"}, contextData.availableCorrespondentNames)
 	assert.Equal(t, []string{"Invoice"}, contextData.availableDocumentTypeNames)
 	assert.Equal(t, "Invoice", contextData.availableDocumentTypeContext)
+}
+
+func TestGenerateSingleDocumentSuggestionKeepsSuccessfulFieldsWhenOneFieldFails(t *testing.T) {
+	var err error
+	titleTemplate, err = template.New("title").Parse(testTitleTemplate)
+	require.NoError(t, err)
+	createdDateTemplate, err = template.New("created_date").Parse(testCreatedDateContentTemplate)
+	require.NoError(t, err)
+
+	app := &App{
+		LLM: &sequenceLLM{
+			responses: []string{"Useful title"},
+			errors:    []error{nil, fmt.Errorf("created date failed")},
+		},
+	}
+
+	suggestion, err := app.generateSingleDocumentSuggestion(
+		context.Background(),
+		GenerateSuggestionsRequest{
+			GenerateTitles:      true,
+			GenerateCreatedDate: true,
+		},
+		Document{
+			ID:      123,
+			Title:   "Original",
+			Content: "Document content",
+			Tags:    []string{manualTag},
+		},
+		suggestionGenerationContext{},
+		logrus.WithField("test", "partial_fields"),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Useful title", suggestion.SuggestedTitle)
+	require.Contains(t, suggestion.FieldErrors, "created_date")
+	assert.Contains(t, suggestion.FieldErrors["created_date"], "created date failed")
 }
 
 func TestFormatTagTaxonomy(t *testing.T) {

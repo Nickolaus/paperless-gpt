@@ -122,6 +122,7 @@ type DocumentSuggestion struct {
 	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
 	SuggestedDocumentType  string                  `json:"suggested_document_type,omitempty"`
 	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
+	FieldErrors            map[string]string       `json:"field_errors,omitempty"`
 	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
 	RemoveTags             []string                `json:"remove_tags,omitempty"`
 	AddTags                []string                `json:"add_tags,omitempty"`

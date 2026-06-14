@@ -44,6 +44,7 @@ export interface DocumentSuggestion {
   suggested_document_type?: string;
   suggested_created_date?: string;
   suggested_custom_fields?: CustomFieldSuggestion[];
+  field_errors?: Record<string, string>;
 }
 
 export interface TagOption {

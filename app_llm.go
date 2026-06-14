@@ -106,7 +106,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	}
 
 	prompt := promptBuffer.String()
-	log.Debugf("Correspondent suggestion prompt: %s", prompt)
+	log.WithField("prompt_length", len(prompt)).Debug("Correspondent suggestion prompt prepared")
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -178,7 +178,7 @@ func (app *App) getSuggestedTags(
 	}
 
 	prompt := promptBuffer.String()
-	logger.Debugf("Tag suggestion prompt: %s", prompt)
+	logger.WithField("prompt_length", len(prompt)).Debug("Tag suggestion prompt prepared")
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -287,7 +287,7 @@ func (app *App) getSuggestedDocumentType(
 	}
 
 	prompt := promptBuffer.String()
-	logger.Debugf("Document type suggestion prompt: %s", prompt)
+	logger.WithField("prompt_length", len(prompt)).Debug("Document type suggestion prompt prepared")
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -359,7 +359,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	}
 
 	prompt := promptBuffer.String()
-	logger.Debugf("Title suggestion prompt: %s", prompt)
+	logger.WithField("prompt_length", len(prompt)).Debug("Title suggestion prompt prepared")
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -415,7 +415,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	}
 
 	prompt := promptBuffer.String()
-	logger.Debugf("CreatedDate suggestion prompt: %s", prompt)
+	logger.WithField("prompt_length", len(prompt)).Debug("CreatedDate suggestion prompt prepared")
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -495,7 +495,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	}
 
 	prompt := promptBuffer.String()
-	logger.Debugf("Custom field suggestion prompt: %s", prompt)
+	logger.WithField("prompt_length", len(prompt)).Debug("Custom field suggestion prompt prepared")
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -511,7 +511,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 
 	response := stripReasoning(completion.Choices[0].Content)
 	response = stripMarkdown(response)
-	logger.Debugf("LLM response for custom fields: %s", response)
+	logger.WithField("response_length", len(response)).Debug("LLM response for custom fields received")
 
 	// Temporary struct to unmarshal LLM response with field name
 	type LLMCustomFieldResponse struct {
@@ -659,13 +659,17 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	var suggestedDocumentType string
 	var suggestedCreatedDate string
 	var suggestedCustomFields []CustomFieldSuggestion
+	fieldErrors := map[string]string{}
+	successfulFields := 0
 
 	if suggestionRequest.GenerateTitles {
 		var err error
 		suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, generationContext, docLogger)
 		if err != nil {
 			docLogger.Errorf("Error processing document %d: %v", documentID, err)
-			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			fieldErrors["title"] = err.Error()
+		} else {
+			successfulFields++
 		}
 	}
 
@@ -674,7 +678,9 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, generationContext.availableTagContext, doc.Tags, docLogger)
 		if err != nil {
 			logger.Errorf("Error generating tags for document %d: %v", documentID, err)
-			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			fieldErrors["tags"] = err.Error()
+		} else {
+			successfulFields++
 		}
 	}
 
@@ -683,7 +689,9 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, generationContext.availableCorrespondentNames, correspondentBlackList)
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
-			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			fieldErrors["correspondent"] = err.Error()
+		} else {
+			successfulFields++
 		}
 	}
 
@@ -695,7 +703,9 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			suggestedDocumentType, err = app.getSuggestedDocumentType(ctx, content, suggestedTitle, generationContext.availableDocumentTypeNames, docLogger)
 			if err != nil {
 				log.Errorf("Error generating document type for document %d: %v", documentID, err)
-				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+				fieldErrors["document_type"] = err.Error()
+			} else {
+				successfulFields++
 			}
 		}
 	}
@@ -705,7 +715,9 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger)
 		if err != nil {
 			log.Errorf("Error generating createdDate for document %d: %v", documentID, err)
-			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			fieldErrors["created_date"] = err.Error()
+		} else {
+			successfulFields++
 		}
 	}
 
@@ -721,9 +733,15 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
 			if err != nil {
 				log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
-				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+				fieldErrors["custom_fields"] = err.Error()
+			} else {
+				successfulFields++
 			}
 		}
+	}
+
+	if len(fieldErrors) > 0 && successfulFields == 0 {
+		return DocumentSuggestion{}, fmt.Errorf("Document %d: all requested suggestion fields failed", documentID)
 	}
 
 	suggestion := DocumentSuggestion{
@@ -767,6 +785,9 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	if suggestionRequest.GenerateCustomFields {
 		log.Printf("Suggested custom fields for document %d: %v", documentID, suggestedCustomFields)
 		suggestion.SuggestedCustomFields = suggestedCustomFields
+	}
+	if len(fieldErrors) > 0 {
+		suggestion.FieldErrors = fieldErrors
 	}
 
 	suggestion.RemoveTags = []string{manualTag, autoTag}
