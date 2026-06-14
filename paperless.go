@@ -51,6 +51,81 @@ type DocumentType struct {
 	Name string `json:"name"`
 }
 
+// Tag represents a tag from the Paperless-ngx API.
+//
+// Paperless servers that do not support hierarchical tags simply omit the
+// parent field. Newer servers may return either a parent ID or a parent object,
+// so keep the field optional and parse both shapes.
+type Tag struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	ParentID *int   `json:"-"`
+	Children []Tag  `json:"children,omitempty"`
+}
+
+func (tag *Tag) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID       int             `json:"id"`
+		Name     string          `json:"name"`
+		Parent   json.RawMessage `json:"parent"`
+		Children []Tag           `json:"children"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	tag.ID = raw.ID
+	tag.Name = raw.Name
+	tag.ParentID = nil
+	tag.Children = raw.Children
+
+	if len(raw.Parent) == 0 || string(raw.Parent) == "null" {
+		for index := range tag.Children {
+			if tag.Children[index].ParentID == nil {
+				tag.Children[index].ParentID = &tag.ID
+			}
+		}
+		return nil
+	}
+
+	var parentID int
+	if err := json.Unmarshal(raw.Parent, &parentID); err == nil {
+		tag.ParentID = &parentID
+		for index := range tag.Children {
+			if tag.Children[index].ParentID == nil {
+				tag.Children[index].ParentID = &tag.ID
+			}
+		}
+		return nil
+	}
+
+	var parentObject struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(raw.Parent, &parentObject); err == nil && parentObject.ID != 0 {
+		tag.ParentID = &parentObject.ID
+	}
+
+	for index := range tag.Children {
+		if tag.Children[index].ParentID == nil {
+			tag.Children[index].ParentID = &tag.ID
+		}
+	}
+
+	return nil
+}
+
+func flattenTags(tags []Tag) []Tag {
+	flattened := make([]Tag, 0, len(tags))
+	for _, tag := range tags {
+		children := tag.Children
+		tag.Children = nil
+		flattened = append(flattened, tag)
+		flattened = append(flattened, flattenTags(children)...)
+	}
+	return flattened
+}
+
 func hasSameTags(original, suggested []string) bool {
 	if len(original) != len(suggested) {
 		return false
@@ -161,7 +236,23 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
 func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	allTags, err := client.GetAllTagsDetailed(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	tagIDMapping := make(map[string]int)
+	for _, tag := range allTags {
+		tagIDMapping[tag.Name] = tag.ID
+	}
+
+	return tagIDMapping, nil
+}
+
+// GetAllTagsDetailed retrieves all tags from the Paperless-NGX API, preserving
+// optional hierarchy metadata when the server exposes it.
+func (client *PaperlessClient) GetAllTagsDetailed(ctx context.Context) ([]Tag, error) {
+	var allTags []Tag
 	path := "api/tags/"
 
 	for path != "" {
@@ -177,11 +268,8 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		}
 
 		var tagsResponse struct {
-			Results []struct {
-				ID   int    `json:"id"`
-				Name string `json:"name"`
-			} `json:"results"`
-			Next string `json:"next"`
+			Results []Tag  `json:"results"`
+			Next    string `json:"next"`
 		}
 
 		err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
@@ -189,9 +277,7 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 			return nil, err
 		}
 
-		for _, tag := range tagsResponse.Results {
-			tagIDMapping[tag.Name] = tag.ID
-		}
+		allTags = append(allTags, flattenTags(tagsResponse.Results)...)
 
 		// Extract relative path from the Next URL
 		if tagsResponse.Next != "" {
@@ -214,7 +300,7 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		}
 	}
 
-	return tagIDMapping, nil
+	return allTags, nil
 }
 
 // GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)

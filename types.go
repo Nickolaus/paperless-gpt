@@ -163,6 +163,7 @@ type ClientInterface interface {
 	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
+	GetAllTagsDetailed(ctx context.Context) ([]Tag, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)

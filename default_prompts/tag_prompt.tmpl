@@ -13,6 +13,12 @@ The data will be provided using an XML-like format for clarity:
 <available_tags>
 {{.AvailableTags | join ", "}}
 </available_tags>
+{{- if .AvailableTagContext}}
+
+<available_tag_taxonomy>
+{{.AvailableTagContext}}
+</available_tag_taxonomy>
+{{- end}}
 
 <title>
 {{.Title}}
@@ -24,6 +30,6 @@ The data will be provided using an XML-like format for clarity:
 
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
 {{- if .CreateNewTags}}
-You may also suggest new tags not in the list if they are highly relevant.
+Prefer existing tags from the taxonomy. You may also suggest new tags not in the list only if they are highly relevant and no existing tag fits.
 {{- end}}
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
