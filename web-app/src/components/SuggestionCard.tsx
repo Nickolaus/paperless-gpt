@@ -400,13 +400,14 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                       <button
                         type="button"
                         onClick={() => onCustomFieldSuggestionToggle(suggestion.id, field.id)}
+                        aria-pressed={field.isSelected}
                         className={`rounded px-2.5 py-1 text-xs font-semibold ${
                           field.isSelected
                             ? "bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-100 dark:hover:bg-blue-800"
                             : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
                         }`}
                       >
-                        {field.isSelected ? "Apply" : "Skip"}
+                        {field.isSelected ? "Skip" : "Apply"}
                       </button>
                     </div>
                     <div className="mt-3 grid gap-3 md:grid-cols-2">
