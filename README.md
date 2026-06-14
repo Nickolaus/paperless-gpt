@@ -600,7 +600,7 @@ For best results with the enhanced OCR features:
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
-| `CREATE_NEW_TAGS`                   | Allow the LLM to suggest new tags that don't exist in paperless-ngx yet. When enabled, new tags will be created automatically in paperless-ngx.                                               | No       | false                      |
+| `CREATE_NEW_TAGS`                   | Allow the LLM to suggest new tags that don't exist in paperless-ngx yet. Existing tags are preferred; new tags are created in paperless-ngx when suggestions are applied.                    | No       | false                      |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
 | `AUTO_GENERATE_DOCUMENT_TYPE`       | Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used.                                                          | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
@@ -638,12 +638,23 @@ Each template has access to specific variables:
 - `{{.Language}}` - Target language (e.g., "English")
 - `{{.Content}}` - Document content text
 - `{{.Title}}` - Original document title
+- `{{.AvailableTagContext}}` - Current tag taxonomy when tag suggestions are requested
+- `{{.AvailableDocumentTypeContext}}` - Current document types when document type suggestions are requested
 
 **tag_prompt.tmpl**:
 
 - `{{.Language}}` - Target language
 - `{{.AvailableTags}}` - List of existing tags in paperless-ngx
+- `{{.AvailableTagContext}}` - Current tag taxonomy, preserving parent-child hierarchy when available
 - `{{.OriginalTags}}` - Document's current tags
+- `{{.Title}}` - Document title
+- `{{.Content}}` - Document content text
+
+**document_type_prompt.tmpl**:
+
+- `{{.Language}}` - Target language
+- `{{.AvailableDocumentTypes}}` - List of existing document types in paperless-ngx
+- `{{.AvailableDocumentTypeContext}}` - Current document types formatted for prompt context
 - `{{.Title}}` - Document title
 - `{{.Content}}` - Document content text
 

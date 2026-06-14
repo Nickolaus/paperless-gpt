@@ -186,6 +186,35 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, expectedTags, tags)
 }
 
+func TestGetAllTagsDetailedHandlesOptionalParentShapes(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	page := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 1, "name": "root"},
+			{"id": 2, "name": "child-id", "parent": 1},
+			{"id": 3, "name": "child-object", "parent": map[string]interface{}{"id": 1}},
+		},
+		"next": nil,
+	}
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(page)
+	})
+
+	tags, err := env.client.GetAllTagsDetailed(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tags, 3)
+
+	assert.Nil(t, tags[0].ParentID)
+	require.NotNil(t, tags[1].ParentID)
+	assert.Equal(t, 1, *tags[1].ParentID)
+	require.NotNil(t, tags[2].ParentID)
+	assert.Equal(t, 1, *tags[2].ParentID)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)
