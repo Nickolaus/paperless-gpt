@@ -244,6 +244,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			Debug("OCR completed for full document")
 
 		ocrTexts = append(ocrTexts, result.Text)
+		ocrResults = append(ocrResults, result)
 
 		// whole_pdf yields one combined text; store it as a single page result
 		// so the Playground can show and compare it like any other run.
@@ -293,6 +294,16 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}).Debug("Downloaded document PDFs")
 
 		for i, pdfPath := range pdfPaths {
+			select {
+			case <-ctx.Done():
+				docLogger.Info("Job cancelled before processing page")
+				return &ProcessedDocument{
+					ID:   documentID,
+					Text: strings.Join(ocrTexts, "\n\n"),
+				}, ctx.Err()
+			default:
+			}
+
 			pageLogger := docLogger.WithField("page", i+1)
 			pageLogger.Debug("Processing page")
 
@@ -315,11 +326,12 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				WithField("metadata", result.Metadata).
 				Debug("OCR completed for page")
 
-			ocrTexts = append(ocrTexts, result.Text)
-
 			if jobID != "" {
 				jobStore.updatePagesDone(jobID, i+1)
 			}
+
+			ocrTexts = append(ocrTexts, result.Text)
+			ocrResults = append(ocrResults, result)
 
 			var genInfoJSON string
 			if result.GenerationInfo != nil {
@@ -327,7 +339,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 					genInfoJSON = string(b)
 				}
 			}
-			if saveErr := SaveSingleOcrPageResult(app.Database, documentID, jobID, i, result.Text, result.OcrLimitHit, genInfoJSON); saveErr != nil {
+
+			saveErr := SaveSingleOcrPageResult(app.Database, documentID, jobID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			if saveErr != nil {
 				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
 			}
 		}

@@ -77,24 +77,32 @@ func (store *JobStore) addJob(job *Job) {
 	logger.Infof("Job added: %v", job)
 }
 
-func (store *JobStore) getJob(jobID string) (*Job, bool) {
+func cloneJob(job *Job) Job {
+	jobCopy := *job
+	return jobCopy
+}
+
+func (store *JobStore) getJob(jobID string) (Job, bool) {
 	store.pruneTerminalJobs(time.Now(), ocrJobRetention(), ocrJobMaxTerminal())
 
 	store.RLock()
 	defer store.RUnlock()
 	job, exists := store.jobs[jobID]
-	return job, exists
+	if !exists {
+		return Job{}, false
+	}
+	return cloneJob(job), true
 }
 
-func (store *JobStore) GetAllJobs() []*Job {
+func (store *JobStore) GetAllJobs() []Job {
 	store.pruneTerminalJobs(time.Now(), ocrJobRetention(), ocrJobMaxTerminal())
 
 	store.RLock()
 	defer store.RUnlock()
 
-	jobs := make([]*Job, 0, len(store.jobs))
+	jobs := make([]Job, 0, len(store.jobs))
 	for _, job := range store.jobs {
-		jobs = append(jobs, job)
+		jobs = append(jobs, cloneJob(job))
 	}
 
 	sort.Slice(jobs, func(i, j int) bool {
@@ -232,6 +240,18 @@ func (store *JobStore) progress(jobID string) (pagesDone, totalPages int) {
 	return 0, 0
 }
 
+func (store *JobStore) cancelPending(jobID string) bool {
+	store.Lock()
+	defer store.Unlock()
+	if job, exists := store.jobs[jobID]; exists && job.Status == "pending" {
+		job.Status = "cancelled"
+		job.Result = "Job cancelled by user"
+		job.UpdatedAt = time.Now()
+		return true
+	}
+	return false
+}
+
 func startWorkerPool(app *App, numWorkers int) {
 	for i := 0; i < numWorkers; i++ {
 		go func(workerID int) {
@@ -247,7 +267,18 @@ func startWorkerPool(app *App, numWorkers int) {
 func processJob(app *App, job *Job) {
 	jobStore.updateJobStatus(job.ID, "in_progress", "")
 
-	jobCtx, cancel := context.WithCancel(context.Background())
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	jobCtx := baseCtx
+	cancel := baseCancel
+	if timeout := ocrJobTimeout(); timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		jobCtx, timeoutCancel = context.WithTimeout(baseCtx, timeout)
+		cancel = func() {
+			timeoutCancel()
+			baseCancel()
+		}
+	}
+
 	jobCancellersMu.Lock()
 	jobCancellers[job.ID] = cancel
 	jobCancellersMu.Unlock()
@@ -268,11 +299,15 @@ func processJob(app *App, job *Job) {
 	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
 	pagesDone, totalPages := jobStore.progress(job.ID)
 	if err != nil {
-		if jobCtx.Err() == context.Canceled {
+		switch jobCtx.Err() {
+		case context.Canceled:
 			jobStore.updateJobStatus(job.ID, "cancelled", "Job cancelled by user")
 			finishOCRRunLogged(app, job.ID, "cancelled", "Job cancelled by user", pagesDone, totalPages, "", "")
 			logger.Infof("Job cancelled: %s", job.ID)
-		} else {
+		case context.DeadlineExceeded:
+			jobStore.updateJobStatus(job.ID, "failed", "OCR job timed out")
+			logger.Warnf("OCR job timed out: %s", job.ID)
+		default:
 			logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
 			jobStore.updateJobStatus(job.ID, "failed", err.Error())
 			finishOCRRunLogged(app, job.ID, "failed", err.Error(), pagesDone, totalPages, "", "")
@@ -300,4 +335,18 @@ func finishOCRRunLogged(app *App, jobID, status, errorMsg string, pagesDone, tot
 	if err := FinishOCRRun(app.Database, jobID, status, errorMsg, pagesDone, totalPages, pdfAction, pdfDetail); err != nil {
 		logger.Warnf("Failed to persist OCR run outcome for job %s: %v", jobID, err)
 	}
+}
+
+func ocrJobTimeout() time.Duration {
+	value := os.Getenv("OCR_JOB_TIMEOUT_SECONDS")
+	if value == "" {
+		return 0
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+
+	return time.Duration(seconds) * time.Second
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -35,6 +36,77 @@ func setupTestServer() (*httptest.Server, func()) {
 		mistralOCREndpoint = origOCREndpoint
 		mistralFilesEndpoint = origFilesEndpoint
 	}
+}
+
+func TestMistralOCRProvider_RetriesTransientOCRFailure(t *testing.T) {
+	origOCREndpoint := mistralOCREndpoint
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintln(w, `{"error":"overloaded"}`)
+			return
+		}
+		handleOCRRequest(w, r)
+	}))
+	defer func() {
+		server.Close()
+		mistralOCREndpoint = origOCREndpoint
+	}()
+
+	mistralOCREndpoint = server.URL + "/v1/ocr"
+	provider := &MistralOCRProvider{
+		apiKey:         "test-key",
+		model:          "mistral-ocr-latest",
+		maxRetries:     1,
+		backoffMaxWait: time.Millisecond,
+		requestTimeout: time.Second,
+	}
+
+	req := MistralOCRRequest{Model: provider.model}
+	req.Document.Type = "document_url"
+	req.Document.DocumentURL = "https://test-document-url"
+
+	text, _, err := provider.processDocument(context.Background(), req, log.WithField("test", "retry"))
+
+	assert.NoError(t, err)
+	assert.Equal(t, "Test OCR output", text)
+	assert.Equal(t, 2, requests)
+}
+
+func TestMistralOCRProvider_DoesNotRetryPermanentOCRFailure(t *testing.T) {
+	origOCREndpoint := mistralOCREndpoint
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, `{"error":"bad request"}`)
+	}))
+	defer func() {
+		server.Close()
+		mistralOCREndpoint = origOCREndpoint
+	}()
+
+	mistralOCREndpoint = server.URL + "/v1/ocr"
+	provider := &MistralOCRProvider{
+		apiKey:         "test-key",
+		model:          "mistral-ocr-latest",
+		maxRetries:     3,
+		backoffMaxWait: time.Millisecond,
+		requestTimeout: time.Second,
+	}
+
+	req := MistralOCRRequest{Model: provider.model}
+	req.Document.Type = "document_url"
+	req.Document.DocumentURL = "https://test-document-url"
+
+	_, _, err := provider.processDocument(context.Background(), req, log.WithField("test", "no_retry"))
+
+	assert.Error(t, err)
+	assert.Equal(t, 1, requests)
 }
 
 func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
@@ -253,10 +325,13 @@ func TestMistralOCRProvider_ProcessDocument(t *testing.T) {
 	req.Document.DocumentURL = "https://test-document-url"
 
 	logger := log.WithField("test", "process_document")
-	text, err := provider.processDocument(context.Background(), req, logger)
+	text, generationInfo, err := provider.processDocument(context.Background(), req, logger)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "Test OCR output", text)
+	assert.Equal(t, "mistral_ocr", generationInfo["provider"])
+	assert.Equal(t, "mistral-ocr-latest", generationInfo["model"])
+	assert.Equal(t, 1, generationInfo["pages_processed"])
 }
 
 func TestMistralOCRProvider_ProcessPDFDeletesUploadedFile(t *testing.T) {
@@ -297,6 +372,51 @@ func TestMistralOCRProvider_ProcessPDFDeletesUploadedFile(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
+	assert.Equal(t, 1, deleteRequests)
+}
+
+func TestMistralOCRProvider_ProcessPDFDeletesUploadedFileAfterOCRFailure(t *testing.T) {
+	origOCREndpoint := mistralOCREndpoint
+	origFilesEndpoint := mistralFilesEndpoint
+	deleteRequests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/files" && r.Method == http.MethodPost:
+			handleFileUploadRequest(w, r)
+		case r.URL.Path == "/v1/files/test-file-id/url" && r.Method == http.MethodGet:
+			handleGetSignedURLRequest(w, r)
+		case r.URL.Path == "/v1/ocr" && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintln(w, `{"error":"bad request"}`)
+		case r.URL.Path == "/v1/files/test-file-id" && r.Method == http.MethodDelete:
+			deleteRequests++
+			handleDeleteFileRequest(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer func() {
+		server.Close()
+		mistralOCREndpoint = origOCREndpoint
+		mistralFilesEndpoint = origFilesEndpoint
+	}()
+
+	mistralOCREndpoint = server.URL + "/v1/ocr"
+	mistralFilesEndpoint = server.URL + "/v1/files"
+
+	provider := &MistralOCRProvider{
+		apiKey:         "test-key",
+		model:          "mistral-ocr-latest",
+		maxRetries:     0,
+		backoffMaxWait: time.Millisecond,
+		requestTimeout: time.Second,
+	}
+
+	result, err := provider.ProcessImage(context.Background(), []byte("%PDF-1.7\ncontent"), 1)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
 	assert.Equal(t, 1, deleteRequests)
 }
 
@@ -355,7 +475,7 @@ func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
 			req.Document.DocumentURL = "https://test-document-url"
 
 			logger := log.WithField("test", "error_handling")
-			text, err := provider.processDocument(context.Background(), req, logger)
+			text, _, err := provider.processDocument(context.Background(), req, logger)
 
 			if tt.wantErr {
 				assert.Error(t, err)
