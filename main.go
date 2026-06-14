@@ -264,30 +264,54 @@ func main() {
 	}
 
 	ocrConfig := ocr.Config{
-		Provider:                 providerType,
-		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
-		GoogleLocation:           os.Getenv("GOOGLE_LOCATION"),
-		GoogleProcessorID:        os.Getenv("GOOGLE_PROCESSOR_ID"),
-		VisionLLMProvider:        visionLlmProvider,
-		VisionLLMModel:           visionLlmModel,
-		VisionLLMPrompt:          ocrPrompt,
-		AzureEndpoint:            azureDocAIEndpoint,
-		AzureAPIKey:              azureDocAIKey,
-		AzureModelID:             azureDocAIModelID,
-		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
-		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
-		MistralModel:             os.Getenv("MISTRAL_MODEL"),
-		DoclingURL:               doclingURL,
-		DoclingImageExportMode:   doclingImageExportMode,
-		DoclingOCRPipeline:       doclingOCRPipeline,
-		DoclingOCREngine:         doclingOCREngine,
-		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
-		VisionLLMMaxTokens:       visionLlmMaxTokens,
-		VisionLLMTemperature:     visionLlmTemperature,
-		OllamaOcrTopK:            ollamaOcrTopK,
-		OllamaContextLength:      ollamaContextLength,
-		GoogleAIAPIKey:           os.Getenv("GOOGLEAI_API_KEY"),
-		GoogleAIThinkingBudget:   googleThinkingBudget,
+		Provider:                              providerType,
+		GoogleProjectID:                       os.Getenv("GOOGLE_PROJECT_ID"),
+		GoogleLocation:                        os.Getenv("GOOGLE_LOCATION"),
+		GoogleProcessorID:                     os.Getenv("GOOGLE_PROCESSOR_ID"),
+		VisionLLMProvider:                     visionLlmProvider,
+		VisionLLMModel:                        visionLlmModel,
+		VisionLLMPrompt:                       ocrPrompt,
+		AzureEndpoint:                         azureDocAIEndpoint,
+		AzureAPIKey:                           azureDocAIKey,
+		AzureModelID:                          azureDocAIModelID,
+		AzureOutputContentFormat:              AzureDocAIOutputContentFormat,
+		MistralAPIKey:                         os.Getenv("MISTRAL_API_KEY"),
+		MistralModel:                          os.Getenv("MISTRAL_MODEL"),
+		MistralOCRConfidenceScoresGranularity: os.Getenv("MISTRAL_OCR_CONFIDENCE_GRANULARITY"),
+		MistralOCRTableFormat:                 os.Getenv("MISTRAL_OCR_TABLE_FORMAT"),
+		DoclingURL:                            doclingURL,
+		DoclingImageExportMode:                doclingImageExportMode,
+		DoclingOCRPipeline:                    doclingOCRPipeline,
+		DoclingOCREngine:                      doclingOCREngine,
+		EnableHOCR:                            true, // Always generate hOCR struct if provider supports it
+		VisionLLMMaxTokens:                    visionLlmMaxTokens,
+		VisionLLMTemperature:                  visionLlmTemperature,
+		OllamaOcrTopK:                         ollamaOcrTopK,
+		OllamaContextLength:                   ollamaContextLength,
+		GoogleAIAPIKey:                        os.Getenv("GOOGLEAI_API_KEY"),
+		GoogleAIThinkingBudget:                googleThinkingBudget,
+	}
+
+	if value := os.Getenv("MISTRAL_OCR_MAX_RETRIES"); value != "" {
+		if retries, err := strconv.Atoi(value); err == nil {
+			ocrConfig.MistralOCRMaxRetries = retries
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_MAX_RETRIES value: %v, using default", err)
+		}
+	}
+	if value := os.Getenv("MISTRAL_OCR_BACKOFF_MAX_WAIT"); value != "" {
+		if backoff, err := time.ParseDuration(value); err == nil {
+			ocrConfig.MistralOCRBackoffMaxWait = backoff
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_BACKOFF_MAX_WAIT value: %v, using default", err)
+		}
+	}
+	if value := os.Getenv("MISTRAL_OCR_REQUEST_TIMEOUT_SECONDS"); value != "" {
+		if seconds, err := strconv.Atoi(value); err == nil {
+			ocrConfig.MistralOCRRequestTimeout = time.Duration(seconds) * time.Second
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_REQUEST_TIMEOUT_SECONDS value: %v, using default", err)
+		}
 	}
 
 	// Parse Azure timeout if set

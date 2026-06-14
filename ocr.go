@@ -188,6 +188,15 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			Debug("OCR completed for full document")
 
 		ocrTexts = append(ocrTexts, result.Text)
+		ocrResults = append(ocrResults, result)
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+			jobStore.updatePagesDone(jobID, totalPdfPages)
+		}
 	} else if processMode == "pdf" {
 		// Process PDF pages individually
 		pdfPaths, pdfData, pdfPageCount, err := app.Client.DownloadDocumentAsPDF(ctx, documentID, pageLimit, true)
@@ -222,6 +231,16 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}).Debug("Downloaded document PDFs")
 
 		for i, pdfPath := range pdfPaths {
+			select {
+			case <-ctx.Done():
+				docLogger.Info("Job cancelled before processing page")
+				return &ProcessedDocument{
+					ID:   documentID,
+					Text: strings.Join(ocrTexts, "\n\n"),
+				}, ctx.Err()
+			default:
+			}
+
 			pageLogger := docLogger.WithField("page", i+1)
 			pageLogger.Debug("Processing page")
 
@@ -244,7 +263,24 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				WithField("metadata", result.Metadata).
 				Debug("OCR completed for page")
 
+			if jobID != "" {
+				jobStore.updatePagesDone(jobID, i+1)
+			}
+
 			ocrTexts = append(ocrTexts, result.Text)
+			ocrResults = append(ocrResults, result)
+
+			var genInfoJSON string
+			if result.GenerationInfo != nil {
+				if b, err := json.Marshal(result.GenerationInfo); err == nil {
+					genInfoJSON = string(b)
+				}
+			}
+
+			saveErr := SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			if saveErr != nil {
+				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
+			}
 		}
 	} else {
 		// Process pages as images

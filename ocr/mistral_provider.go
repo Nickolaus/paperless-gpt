@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,8 +23,13 @@ var (
 
 // MistralOCRProvider implements the OCR Provider interface using Mistral's OCR API
 type MistralOCRProvider struct {
-	apiKey string
-	model  string
+	apiKey                      string
+	model                       string
+	maxRetries                  int
+	backoffMaxWait              time.Duration
+	requestTimeout              time.Duration
+	confidenceScoresGranularity string
+	tableFormat                 string
 }
 
 // MistralOCRRequest represents the request body for the Mistral OCR API
@@ -34,7 +40,9 @@ type MistralOCRRequest struct {
 		DocumentURL string `json:"document_url,omitempty"`
 		ImageURL    string `json:"image_url,omitempty"`
 	} `json:"document"`
-	IncludeImageBase64 bool `json:"include_image_base64,omitempty"`
+	IncludeImageBase64          bool   `json:"include_image_base64,omitempty"`
+	ConfidenceScoresGranularity string `json:"confidence_scores_granularity,omitempty"`
+	TableFormat                 string `json:"table_format,omitempty"`
 }
 
 // MistralOCRResponse represents the response from Mistral's OCR API
@@ -54,6 +62,7 @@ type MistralOCRResponse struct {
 		PagesProcessed int         `json:"pages_processed"`
 		DocSizeBytes   interface{} `json:"doc_size_bytes"`
 	} `json:"usage_info"`
+	ConfidenceScores interface{} `json:"confidence_scores,omitempty"`
 }
 
 // MistralFileUploadResponse represents the response from Mistral's file upload API
@@ -79,7 +88,57 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 			}
 			return config.MistralModel
 		}(),
+		maxRetries: func() int {
+			if config.MistralOCRMaxRetries < 0 {
+				return 0
+			}
+			if config.MistralOCRMaxRetries == 0 {
+				return 3
+			}
+			return config.MistralOCRMaxRetries
+		}(),
+		backoffMaxWait: func() time.Duration {
+			if config.MistralOCRBackoffMaxWait <= 0 {
+				return 10 * time.Second
+			}
+			return config.MistralOCRBackoffMaxWait
+		}(),
+		requestTimeout: func() time.Duration {
+			if config.MistralOCRRequestTimeout <= 0 {
+				return 60 * time.Second
+			}
+			return config.MistralOCRRequestTimeout
+		}(),
+		confidenceScoresGranularity: config.MistralOCRConfidenceScoresGranularity,
+		tableFormat:                 config.MistralOCRTableFormat,
 	}, nil
+}
+
+func (p *MistralOCRProvider) retryableClient(timeout time.Duration) *retryablehttp.Client {
+	if timeout <= 0 {
+		timeout = p.requestTimeout
+	}
+	client := retryablehttp.NewClient()
+	client.RetryMax = p.maxRetries
+	client.RetryWaitMin = time.Second
+	client.RetryWaitMax = p.backoffMaxWait
+	client.Logger = nil
+	client.HTTPClient.Timeout = timeout
+	client.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if err != nil {
+			return true, nil
+		}
+		if resp == nil {
+			return false, nil
+		}
+		switch resp.StatusCode {
+		case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true, nil
+		default:
+			return false, nil
+		}
+	}
+	return client
 }
 
 // ProcessImage implements the OCR Provider interface
@@ -99,6 +158,8 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 
 	var req MistralOCRRequest
 	req.Model = p.model
+	req.ConfidenceScoresGranularity = p.confidenceScoresGranularity
+	req.TableFormat = p.tableFormat
 
 	// Handle different content types appropriately
 	if mtype.String() == "application/pdf" {
@@ -138,7 +199,7 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		}).Debug("Using image URL method")
 	}
 
-	text, err := p.processDocument(ctx, req, logger)
+	text, generationInfo, err := p.processDocument(ctx, req, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +212,7 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 			"mime_type": mtype.String(),
 			"page":      fmt.Sprintf("%d", pageNumber),
 		},
+		GenerationInfo: generationInfo,
 	}, nil
 }
 
@@ -180,7 +242,7 @@ func (p *MistralOCRProvider) uploadFile(ctx context.Context, data []byte) (strin
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", mistralFilesEndpoint, body)
+	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", mistralFilesEndpoint, body)
 	if err != nil {
 		return "", err
 	}
@@ -194,7 +256,7 @@ func (p *MistralOCRProvider) uploadFile(ctx context.Context, data []byte) (strin
 		"body_size":    body.Len(),
 	}).Debug("Sending file upload request")
 
-	client := &http.Client{Timeout: time.Second * 30}
+	client := p.retryableClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("File upload request failed")
@@ -210,17 +272,17 @@ func (p *MistralOCRProvider) uploadFile(ctx context.Context, data []byte) (strin
 	}
 
 	logger.WithFields(logrus.Fields{
-		"status_code":   resp.StatusCode,
-		"response_body": string(bodyBytes),
-		"headers":       resp.Header,
+		"status_code": resp.StatusCode,
+		"body_length": len(bodyBytes),
+		"headers":     resp.Header,
 	}).Debug("File upload response")
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		logger.WithFields(logrus.Fields{
-			"status_code":   resp.StatusCode,
-			"response_body": string(bodyBytes),
+			"status_code": resp.StatusCode,
+			"body_length": len(bodyBytes),
 		}).Error("File upload failed")
-		return "", fmt.Errorf("file upload failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+		return "", fmt.Errorf("file upload failed with status: %d, response length: %d", resp.StatusCode, len(bodyBytes))
 	}
 
 	var uploadResp MistralFileUploadResponse
@@ -239,7 +301,7 @@ func (p *MistralOCRProvider) getSignedURL(ctx context.Context, fileID string) (s
 	logger.Debug("Getting signed URL")
 
 	url := fmt.Sprintf("%s/%s/url?expiry=24", mistralFilesEndpoint, fileID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := retryablehttp.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -249,7 +311,7 @@ func (p *MistralOCRProvider) getSignedURL(ctx context.Context, fileID string) (s
 
 	logger.WithField("url", url).Debug("Sending signed URL request")
 
-	client := &http.Client{Timeout: time.Second * 180}
+	client := p.retryableClient(180 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("Signed URL request failed")
@@ -264,16 +326,16 @@ func (p *MistralOCRProvider) getSignedURL(ctx context.Context, fileID string) (s
 	}
 
 	logger.WithFields(logrus.Fields{
-		"status_code":   resp.StatusCode,
-		"response_body": string(bodyBytes),
+		"status_code": resp.StatusCode,
+		"body_length": len(bodyBytes),
 	}).Debug("Signed URL response")
 
 	if resp.StatusCode != http.StatusOK {
 		logger.WithFields(logrus.Fields{
-			"status_code":   resp.StatusCode,
-			"response_body": string(bodyBytes),
+			"status_code": resp.StatusCode,
+			"body_length": len(bodyBytes),
 		}).Error("Failed to get signed URL")
-		return "", fmt.Errorf("failed to get signed URL with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+		return "", fmt.Errorf("failed to get signed URL with status: %d, response length: %d", resp.StatusCode, len(bodyBytes))
 	}
 
 	var signedURLResp struct {
@@ -307,7 +369,7 @@ func (p *MistralOCRProvider) cleanupUploadedFile(ctx context.Context, fileID str
 
 func (p *MistralOCRProvider) deleteFile(ctx context.Context, fileID string) error {
 	url := fmt.Sprintf("%s/%s", mistralFilesEndpoint, fileID)
-	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	req, err := retryablehttp.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
 	}
@@ -315,7 +377,7 @@ func (p *MistralOCRProvider) deleteFile(ctx context.Context, fileID string) erro
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := p.retryableClient(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -346,12 +408,12 @@ func (p *MistralOCRProvider) deleteFile(ctx context.Context, fileID string) erro
 }
 
 // processDocument sends the OCR request to Mistral's API
-func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCRRequest, logger *logrus.Entry) (string, error) {
+func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCRRequest, logger *logrus.Entry) (string, map[string]interface{}, error) {
 	logger.Debug("Processing document with Mistral OCR API")
 
 	jsonData, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Log the request (but mask sensitive data)
@@ -365,9 +427,9 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 	reqLogData, _ := json.Marshal(reqCopy)
 	logger.WithField("request_body", string(reqLogData)).Debug("OCR request details")
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", mistralOCREndpoint, bytes.NewBuffer(jsonData))
+	httpReq, err := retryablehttp.NewRequestWithContext(ctx, "POST", mistralOCREndpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -380,11 +442,11 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 		"api_key_len": len(p.apiKey),
 	}).Debug("Sending OCR request")
 
-	client := &http.Client{Timeout: time.Second * 60} // Increased timeout for OCR processing
+	client := p.retryableClient(p.requestTimeout)
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		logger.WithError(err).Error("OCR request failed")
-		return "", err
+		return "", nil, err
 	}
 	defer resp.Body.Close()
 
@@ -392,7 +454,7 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.WithError(err).Error("Failed to read OCR response body")
-		return "", err
+		return "", nil, err
 	}
 
 	logger.WithFields(logrus.Fields{
@@ -404,17 +466,17 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 
 	if resp.StatusCode != http.StatusOK {
 		logger.WithFields(logrus.Fields{
-			"status_code":   resp.StatusCode,
-			"response_body": string(bodyBytes),
-			"headers":       resp.Header,
+			"status_code": resp.StatusCode,
+			"body_length": len(bodyBytes),
+			"headers":     resp.Header,
 		}).Error("OCR request failed with detailed error info")
-		return "", fmt.Errorf("OCR request failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+		return "", nil, fmt.Errorf("OCR request failed with status: %d, response length: %d", resp.StatusCode, len(bodyBytes))
 	}
 
 	var ocrResp MistralOCRResponse
 	if err := json.Unmarshal(bodyBytes, &ocrResp); err != nil {
-		logger.WithError(err).WithField("response_body", string(bodyBytes)).Error("Failed to parse OCR response")
-		return "", fmt.Errorf("failed to parse OCR response: %w", err)
+		logger.WithError(err).WithField("body_length", len(bodyBytes)).Error("Failed to parse OCR response")
+		return "", nil, fmt.Errorf("failed to parse OCR response: %w", err)
 	}
 
 	logger.WithFields(logrus.Fields{
@@ -443,7 +505,20 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 	}
 
 	logger.WithField("combined_text_length", len(combinedText)).Info("Successfully extracted text")
-	return combinedText, nil
+	generationInfo := map[string]interface{}{
+		"provider":        "mistral_ocr",
+		"model":           ocrResp.Model,
+		"pages_processed": ocrResp.UsageInfo.PagesProcessed,
+		"doc_size_bytes":  ocrResp.UsageInfo.DocSizeBytes,
+	}
+	if ocrResp.ConfidenceScores != nil {
+		generationInfo["confidence_scores_present"] = true
+		if confidenceBytes, err := json.Marshal(ocrResp.ConfidenceScores); err == nil {
+			generationInfo["confidence_scores_bytes"] = len(confidenceBytes)
+		}
+	}
+
+	return combinedText, generationInfo, nil
 }
 
 // Helper function for min (Go 1.21+ has this built-in)

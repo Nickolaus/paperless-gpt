@@ -12,10 +12,14 @@ type OCRPageResult = {
 };
 type OCRCombinedResult = { combinedText: string; perPageResults: OCRPageResult[] };
 
+const activeOCRJobStorageKey = "paperless-gpt-active-ocr-job-id";
+const activeOCRDocumentStorageKey = "paperless-gpt-active-ocr-document-id";
+const ocrJobPollIntervalMs = 1000;
+const ocrJobPollRetryMaxDelayMs = 10000;
+
 const ExperimentalOCR: React.FC = () => {
-  const refreshInterval = 1000; // Refresh interval in milliseconds
-  const [documentId, setDocumentId] = useState(0);
-  const [jobId, setJobId] = useState('');
+  const [documentId, setDocumentId] = useState(() => Number(localStorage.getItem(activeOCRDocumentStorageKey) || 0));
+  const [jobId, setJobId] = useState(() => localStorage.getItem(activeOCRJobStorageKey) || '');
   const [ocrResult, setOcrResult] = useState('');
   const [jobStatus, setJobStatus] = useState<OCRJobStatus>('idle');
   const [clientStatus, setClientStatus] = useState<ClientStatus>('idle');
@@ -27,6 +31,7 @@ const ExperimentalOCR: React.FC = () => {
   const [documentDetails, setDocumentDetails] = useState<Document | null>(null);
   const [perPageResults, setPerPageResults] = useState<OCRPageResult[]>([]);
   const lastFetchedPagesDoneRef = useRef(0);
+  const pollFailureCountRef = useRef(0);
 
   const [reOcrLoading, setReOcrLoading] = useState<{ [pageIdx: number]: boolean }>({});
   const [reOcrErrors, setReOcrErrors] = useState<{ [pageIdx: number]: string }>({});
@@ -37,6 +42,9 @@ const ExperimentalOCR: React.FC = () => {
     try {
       await axios.post(`./api/ocr/jobs/${jobId}/stop`);
       setJobStatus('cancelled');
+      localStorage.removeItem(activeOCRJobStorageKey);
+      localStorage.removeItem(activeOCRDocumentStorageKey);
+      setJobId('');
     } catch (err) {
       setError('Failed to stop OCR job.');
     }
@@ -82,6 +90,8 @@ const ExperimentalOCR: React.FC = () => {
       setClientStatus('submitting');
       const response = await axios.post(`./api/documents/${documentId}/ocr`);
       setJobId(response.data.job_id);
+      localStorage.setItem(activeOCRJobStorageKey, response.data.job_id);
+      localStorage.setItem(activeOCRDocumentStorageKey, String(documentId));
       setJobStatus('pending');
       setClientStatus('idle');
     } catch (err) {
@@ -96,6 +106,7 @@ const ExperimentalOCR: React.FC = () => {
 
     try {
       const response = await axios.get(`./api/jobs/ocr/${jobId}`);
+      pollFailureCountRef.current = 0;
       const newJobStatus = mapJobStatus(response.data.status);
       setJobStatus(newJobStatus);
       const newPagesDone = response.data.pages_done;
@@ -108,6 +119,8 @@ const ExperimentalOCR: React.FC = () => {
       }
 
       if (newJobStatus === 'completed') {
+        localStorage.removeItem(activeOCRJobStorageKey);
+        localStorage.removeItem(activeOCRDocumentStorageKey);
         let parsedResult: OCRCombinedResult | null = null;
         try {
           parsedResult = JSON.parse(response.data.result);
@@ -120,13 +133,21 @@ const ExperimentalOCR: React.FC = () => {
           setPerPageResults(parsedResult.perPageResults);
         }
       } else if (newJobStatus === 'failed') {
+        localStorage.removeItem(activeOCRJobStorageKey);
+        localStorage.removeItem(activeOCRDocumentStorageKey);
         setError(response.data.error);
+      } else if (newJobStatus === 'cancelled') {
+        localStorage.removeItem(activeOCRJobStorageKey);
+        localStorage.removeItem(activeOCRDocumentStorageKey);
       } else {
-        setTimeout(() => checkJobStatus(), refreshInterval);
+        setTimeout(() => checkJobStatus(), ocrJobPollIntervalMs);
       }
     } catch (err) {
       console.error(err);
-      setError('Failed to check job status.');
+      pollFailureCountRef.current += 1;
+      const retryDelay = Math.min(ocrJobPollIntervalMs * 2 ** pollFailureCountRef.current, ocrJobPollRetryMaxDelayMs);
+      setError('Failed to check job status. Retrying...');
+      setTimeout(() => checkJobStatus(), retryDelay);
     }
   };
 
