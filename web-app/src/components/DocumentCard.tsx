@@ -5,61 +5,75 @@ interface DocumentCardProps {
   document: Document;
   isSelected?: boolean;
   onSelect?: (documentId: number) => void;
+  disabled?: boolean;
 }
 
-const DocumentCard: React.FC<DocumentCardProps> = ({ document, isSelected, onSelect }) => (
-  <div 
-    className={`document-card bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative group overflow-hidden cursor-pointer ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
-    onClick={() => onSelect && onSelect(document.id)}
+const metadataItems = (document: Document) => [
+  { label: "ID", value: document.id ? String(document.id) : "" },
+  { label: "Correspondent", value: document.correspondent },
+  { label: "Type", value: document.document_type_name },
+  { label: "Created", value: document.created_date },
+  { label: "File", value: document.original_file_name },
+].filter((item) => item.value);
+
+const DocumentCard: React.FC<DocumentCardProps> = ({ document, isSelected, onSelect, disabled }) => (
+  <article
+    className={`document-card rounded-md border bg-white p-4 shadow-sm transition dark:bg-gray-800 ${
+      isSelected
+        ? "border-blue-500 ring-2 ring-blue-500"
+        : "border-gray-200 dark:border-gray-700"
+    } ${onSelect && !disabled ? "cursor-pointer hover:border-blue-400" : ""} ${disabled ? "opacity-60" : ""}`}
+    onClick={() => onSelect && !disabled && onSelect(document.id)}
   >
     {onSelect && (
-      <input
-        type="checkbox"
-        checked={isSelected}
-        onChange={() => onSelect(document.id)}
-        onClick={(e) => e.stopPropagation()}
-        className="absolute top-2 right-2 h-6 w-6 z-10"
-      />
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <label
+          className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(isSelected)}
+            disabled={disabled}
+            onChange={() => onSelect(document.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          Select document
+        </label>
+      </div>
     )}
-    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{document.title}</h3>
-    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 truncate">
-      {document.content.length > 100
-        ? `${document.content.substring(0, 100)}...`
-        : document.content}
+
+    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{document.title || "Untitled document"}</h3>
+
+    {metadataItems(document).length > 0 && (
+      <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-300 sm:grid-cols-2">
+        {metadataItems(document).map((item) => (
+          <div key={item.label} className="min-w-0">
+            <dt className="inline font-medium text-gray-700 dark:text-gray-200">{item.label}: </dt>
+            <dd className="inline break-words">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    )}
+
+    <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-400">
+      {document.content?.trim()
+        ? document.content
+        : "No extracted document text is available yet."}
     </p>
-    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-      Correspondent: <span className="font-bold text-blue-600 dark:text-blue-400">{document.correspondent}</span>
-    </p>
-    <div className="mt-4">
+
+    <div className="mt-4 flex flex-wrap gap-2">
       {document.tags.map((tag) => (
         <span
           key={tag}
-          className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full"
+          className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200"
         >
           {tag}
         </span>
       ))}
     </div>
-    <div className="absolute inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4 rounded-md">
-      <div className="text-sm text-white p-2 bg-gray-800 dark:bg-gray-900 rounded-md w-full max-h-full overflow-y-auto">
-        <h3 className="text-lg font-semibold text-white">{document.title}</h3>
-        <p className="mt-2 whitespace-pre-wrap">{document.content}</p>
-        <p className="mt-2">
-          Correspondent: <span className="font-bold text-blue-400">{document.correspondent}</span>
-        </p>
-        <div className="mt-4">
-          {document.tags.map((tag) => (
-            <span
-              key={tag}
-              className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
-  </div>
+  </article>
 );
 
 export default DocumentCard;

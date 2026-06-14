@@ -25,8 +25,10 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
 }) => {
-  const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
+  const sortedAvailableTags = [...availableTags].sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
+  const originalValue = (value?: string) => value?.trim() || "Empty";
+
   return (
     <div className="bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
       <div className="flex items-center group relative">
@@ -72,6 +74,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Suggested Title
         </label>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Current: {originalValue(document.title)}
+        </p>
         <input
           type="text"
           value={suggestion.suggested_title || ""}
@@ -82,6 +87,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Suggested Tags
           </label>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Current: {document.tags.length > 0 ? document.tags.join(", ") : "Empty"}
+          </p>
           <ReactTags
             selected={
               suggestion.suggested_tags?.map((tag, index) => ({
@@ -129,6 +137,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Suggested Correspondent
           </label>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Current: {originalValue(document.correspondent)}
+          </p>
           <input
             type="text"
             value={suggestion.suggested_correspondent || ""}
@@ -141,6 +152,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Suggested Document Type
           </label>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Current: {originalValue(document.document_type_name)}
+          </p>
           <input
             type="text"
             value={suggestion.suggested_document_type || ""}
@@ -153,6 +167,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Suggested Created Date
           </label>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Current: {originalValue(document.created_date)}
+          </p>
           <input
             type="text"
             value={suggestion.suggested_created_date || ""}

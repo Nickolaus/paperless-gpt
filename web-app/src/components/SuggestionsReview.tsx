@@ -33,7 +33,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
 }) => (
   <section className="suggestions-review">
     <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200 mb-6">
-      Review and Edit Suggested Titles
+      Review suggested changes
     </h2>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {suggestions.map((doc) => (
