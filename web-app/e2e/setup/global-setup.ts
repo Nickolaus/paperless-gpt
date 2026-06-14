@@ -1,13 +1,22 @@
 import { chromium } from '@playwright/test';
 import * as nodeFetch from 'node-fetch';
 
+type FetchGlobal = typeof globalThis & {
+  fetch: typeof nodeFetch.default;
+  Headers: typeof nodeFetch.Headers;
+  Request: typeof nodeFetch.Request;
+  Response: typeof nodeFetch.Response;
+  FormData: typeof nodeFetch.FormData;
+};
+
 // Polyfill fetch for Node.js environment
 if (!globalThis.fetch) {
-  (globalThis as any).fetch = nodeFetch.default;
-  (globalThis as any).Headers = nodeFetch.Headers;
-  (globalThis as any).Request = nodeFetch.Request;
-  (globalThis as any).Response = nodeFetch.Response;
-  (globalThis as any).FormData = nodeFetch.FormData;
+  const fetchGlobal = globalThis as FetchGlobal;
+  fetchGlobal.fetch = nodeFetch.default;
+  fetchGlobal.Headers = nodeFetch.Headers;
+  fetchGlobal.Request = nodeFetch.Request;
+  fetchGlobal.Response = nodeFetch.Response;
+  fetchGlobal.FormData = nodeFetch.FormData;
 }
 
 async function globalSetup() {
