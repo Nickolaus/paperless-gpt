@@ -68,15 +68,13 @@ type Tag struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
 	ParentID *int   `json:"-"`
-	Children []Tag  `json:"children,omitempty"`
 }
 
 func (tag *Tag) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		ID       int             `json:"id"`
-		Name     string          `json:"name"`
-		Parent   json.RawMessage `json:"parent"`
-		Children []Tag           `json:"children"`
+		ID     int             `json:"id"`
+		Name   string          `json:"name"`
+		Parent json.RawMessage `json:"parent"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -85,25 +83,14 @@ func (tag *Tag) UnmarshalJSON(data []byte) error {
 	tag.ID = raw.ID
 	tag.Name = raw.Name
 	tag.ParentID = nil
-	tag.Children = raw.Children
 
 	if len(raw.Parent) == 0 || string(raw.Parent) == "null" {
-		for index := range tag.Children {
-			if tag.Children[index].ParentID == nil {
-				tag.Children[index].ParentID = &tag.ID
-			}
-		}
 		return nil
 	}
 
 	var parentID int
 	if err := json.Unmarshal(raw.Parent, &parentID); err == nil {
 		tag.ParentID = &parentID
-		for index := range tag.Children {
-			if tag.Children[index].ParentID == nil {
-				tag.Children[index].ParentID = &tag.ID
-			}
-		}
 		return nil
 	}
 
@@ -114,24 +101,7 @@ func (tag *Tag) UnmarshalJSON(data []byte) error {
 		tag.ParentID = &parentObject.ID
 	}
 
-	for index := range tag.Children {
-		if tag.Children[index].ParentID == nil {
-			tag.Children[index].ParentID = &tag.ID
-		}
-	}
-
 	return nil
-}
-
-func flattenTags(tags []Tag) []Tag {
-	flattened := make([]Tag, 0, len(tags))
-	for _, tag := range tags {
-		children := tag.Children
-		tag.Children = nil
-		flattened = append(flattened, tag)
-		flattened = append(flattened, flattenTags(children)...)
-	}
-	return flattened
 }
 
 func hasSameTags(original, suggested []string) bool {
@@ -317,7 +287,7 @@ func (client *PaperlessClient) GetAllTagsDetailed(ctx context.Context) ([]Tag, e
 			return nil, err
 		}
 
-		allTags = append(allTags, flattenTags(tagsResponse.Results)...)
+		allTags = append(allTags, tagsResponse.Results...)
 
 		// Extract relative path from the Next URL
 		if tagsResponse.Next != "" {

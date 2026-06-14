@@ -208,13 +208,7 @@ func TestGetAllTagsDetailedHandlesOptionalParentShapes(t *testing.T) {
 
 	page := map[string]interface{}{
 		"results": []map[string]interface{}{
-			{
-				"id":   1,
-				"name": "root",
-				"children": []map[string]interface{}{
-					{"id": 4, "name": "nested-child", "parent": 1},
-				},
-			},
+			{"id": 1, "name": "root"},
 			{"id": 2, "name": "child-id", "parent": 1},
 			{"id": 3, "name": "child-object", "parent": map[string]interface{}{"id": 1}},
 		},
@@ -228,16 +222,13 @@ func TestGetAllTagsDetailedHandlesOptionalParentShapes(t *testing.T) {
 
 	tags, err := env.client.GetAllTagsDetailed(context.Background())
 	require.NoError(t, err)
-	require.Len(t, tags, 4)
+	require.Len(t, tags, 3)
 
 	assert.Nil(t, tags[0].ParentID)
 	require.NotNil(t, tags[1].ParentID)
 	assert.Equal(t, 1, *tags[1].ParentID)
 	require.NotNil(t, tags[2].ParentID)
 	assert.Equal(t, 1, *tags[2].ParentID)
-	require.NotNil(t, tags[3].ParentID)
-	assert.Equal(t, 1, *tags[3].ParentID)
-	assert.Equal(t, []string{"root", "nested-child", "child-id", "child-object"}, []string{tags[0].Name, tags[1].Name, tags[2].Name, tags[3].Name})
 }
 
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
