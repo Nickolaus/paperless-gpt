@@ -36,6 +36,7 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+	APIVersion  string
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -179,6 +180,7 @@ func NewPaperlessClient(baseURL, apiToken string) *PaperlessClient {
 		APIToken:    apiToken,
 		HTTPClient:  httpClient,
 		CacheFolder: cacheFolder,
+		APIVersion:  os.Getenv("PAPERLESS_API_VERSION"),
 	}
 }
 
@@ -190,6 +192,9 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
+	if client.APIVersion != "" && strings.HasPrefix(path, "api/") {
+		req.Header.Set("Accept", fmt.Sprintf("application/json; version=%s", client.APIVersion))
+	}
 
 	// Set Content-Type if body is present
 	if body != nil {
@@ -231,13 +236,13 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 				"method":       method,
 				"content-type": contentType,
 				"status-code":  resp.StatusCode,
-				"response":     string(bodyBytes),
+				"body_length":  len(bodyBytes),
 				"base-url":     client.BaseURL,
 				"request-path": path,
 				"full-headers": resp.Header,
 			}).Error("Received HTML response for API request")
 
-			return nil, fmt.Errorf("received HTML response instead of JSON (status: %d). This often indicates an SSL/TLS issue or invalid authentication. Check your PAPERLESS_URL, PAPERLESS_TOKEN and PAPERLESS_INSECURE_SKIP_VERIFY settings. Full response: %s", resp.StatusCode, string(bodyBytes))
+			return nil, fmt.Errorf("received HTML response instead of JSON (status: %d, response length: %d). This often indicates an SSL/TLS issue or invalid authentication. Check your PAPERLESS_URL, PAPERLESS_TOKEN and PAPERLESS_INSECURE_SKIP_VERIFY settings", resp.StatusCode, len(bodyBytes))
 		}
 	}
 

@@ -94,6 +94,21 @@ func InitializeTestDB() (*gorm.DB, error) {
 	return db, nil
 }
 
+func TestPaperlessClientAddsConfiguredAPIVersionHeader(t *testing.T) {
+	t.Setenv("PAPERLESS_API_VERSION", "10")
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "application/json; version=10", r.Header.Get("Accept"))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results": []}`))
+	})
+
+	_, err := env.client.GetAllTags(context.Background())
+	require.NoError(t, err)
+}
+
 // teardown closes the mock server
 func (env *testEnv) teardown() {
 	env.server.Close()

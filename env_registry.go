@@ -97,6 +97,7 @@ var envRegistry = []EnvVar{
 	{Name: "OPENAI_API_TYPE", Category: "LLM", Secret: false, Default: "", Description: "Set to `azure` to use Azure OpenAI Service."},
 	{Name: "OPENAI_BASE_URL", Category: "LLM", Secret: false, Default: "", Description: "Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`)."},
 	{Name: "PAPERLESS_API_TOKEN", Category: "Connection", Secret: true, Default: "", Description: "API token for paperless-ngx. Generate one in paperless-ngx admin."},
+	{Name: "PAPERLESS_API_VERSION", Category: "Connection", Secret: false, Default: "", Description: "Optional paperless-ngx REST API version to request via the `Accept` header (e.g. `9`). Leave unset to use the server's default API version."},
 	{Name: "PAPERLESS_BASE_URL", Category: "Connection", Secret: false, Default: "", Description: "URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`)."},
 	{Name: "PAPERLESS_GPT_CACHE_DIR", Category: "Connection", Secret: false, Default: "OS temp directory", Description: "Base directory for the page-image cache (rendered previews and OCR page images)."},
 	{Name: "PAPERLESS_INSECURE_SKIP_VERIFY", Category: "Connection", Secret: false, Default: "false", Description: "Set to true to skip TLS certificate verification when talking to paperless-ngx. Only for self-signed setups; weakens transport security."},

@@ -83,6 +83,18 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
       </header>
 
       <div className="flex-1 px-4 py-1.5">
+        {suggestion.field_errors && Object.keys(suggestion.field_errors).length > 0 && (
+          <div className="mb-4 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-100">
+            <div className="font-semibold">Some suggestions failed</div>
+            <ul className="mt-2 list-disc pl-5">
+              {Object.entries(suggestion.field_errors).map(([field, message]) => (
+                <li key={field}>
+                  <span className="font-medium">{field}:</span> {message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <SuggestionFields
           suggestion={suggestion}
           availableTags={availableTags}
