@@ -853,6 +853,37 @@ Use a concise and consistent naming style. Follow this title schema when the inf
 
 Interpret the title schema placeholders as:
 - sender: person, company, or institution the document is from or sent to
+- document_type: broad reusable document kind such as invoice, delivery note, contract, notice, statement, or policy
+- reference: invoice number, delivery note number, contract number, customer number, or similar identifier
+- subject: short human-readable detail that distinguishes this document, such as product, contract area, insured object, account, or case
+Use the document_type segment for the broad category, not for one-off descriptions. Put specific customer, product, account, insurance, or case context in the subject segment.
+Do not prefix the title with a date, because paperless-ngx stores dates separately. Do not copy tags or document types into the title unless they are needed to make the title understandable.
+Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+
+The data will be provided using an XML-like format for clarity:
+
+<original_title>{{.Title}}</original_title>
+{{- if .AvailableTagContext}}
+<available_tag_taxonomy>
+{{.AvailableTagContext}}
+</available_tag_taxonomy>
+{{- end}}
+{{- if .AvailableDocumentTypeContext}}
+<available_document_types>
+{{.AvailableDocumentTypeContext}}
+</available_document_types>
+{{- end}}
+<content>
+{{.Content}}
+</content>`,
+		`I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
+Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
+Use a concise and consistent naming style. Follow this title schema when the information is clear:
+{{.TitleSchema}}
+
+Interpret the title schema placeholders as:
+- sender: person, company, or institution the document is from or sent to
 - document_type: document kind such as invoice, delivery note, contract, notice, or bank statement
 - reference: invoice number, delivery note number, contract number, customer number, or similar identifier
 - subject: short human-readable detail that distinguishes this document
