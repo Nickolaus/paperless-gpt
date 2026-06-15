@@ -6,9 +6,10 @@ Use a concise and consistent naming style. Follow this title schema when the inf
 
 Interpret the title schema placeholders as:
 - sender: person, company, or institution the document is from or sent to
-- document_type: document kind such as invoice, delivery note, contract, notice, or bank statement
+- document_type: broad reusable document kind such as invoice, delivery note, contract, notice, statement, or policy
 - reference: invoice number, delivery note number, contract number, customer number, or similar identifier
-- subject: short human-readable detail that distinguishes this document
+- subject: short human-readable detail that distinguishes this document, such as product, contract area, insured object, account, or case
+Use the document_type segment for the broad category, not for one-off descriptions. Put specific customer, product, account, insurance, or case context in the subject segment.
 Do not prefix the title with a date, because paperless-ngx stores dates separately. Do not copy tags or document types into the title unless they are needed to make the title understandable.
 Respond only with the title, without any additional information. The content is likely in {{.Language}}.
 
