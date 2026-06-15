@@ -25,6 +25,7 @@ Rules:
 - The content is likely in {{.Language}}.
 - For title, follow this schema when the information is clear: {{.TitleSchema}}
 - For tags, prefer available tags. Suggest new tags only if highly relevant and no available tag fits.
+  Available tag parents are structure buckets, not normal classification tags. If a parent bucket fits, prefer a specific child tag.
   When suggesting a new child tag, return it as "Existing Parent / New Child" using one of the available tag parents.
   Do not invent new parent tags and do not change existing parent relationships.
 - For correspondent, prefer an exact or normalized match from the available correspondents. Never return a blacklisted correspondent.

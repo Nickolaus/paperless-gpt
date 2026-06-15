@@ -107,8 +107,14 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const keptTags = originalTags.filter((tag) => includesTag(selectedTags, tag) && !isDerivedParentTag(tag));
   const removedTags = (suggestion.remove_tags || []).filter((tag) => includesTag(originalTags, tag) && !includesTag(selectedTags, tag));
   const addedTags = selectedTags.filter((tag) => !includesTag(originalTags, tag) && !isDerivedParentTag(tag));
-  const suggestedExistingTags = addedTags.filter((tag) => includesTag(availableTagNames, tag));
-  const newTags = addedTags.filter((tag) => !includesTag(availableTagNames, tag));
+  const isBroadParentCandidateTag = (tagName: string) => {
+    if (tagSelectionMode !== "applicable") return false;
+    const tag = tagByName.get(tagName.toLocaleLowerCase());
+    return Boolean(tag?.is_parent_candidate && !isDerivedParentTag(tagName));
+  };
+  const broadParentCandidateTags = addedTags.filter((tag) => isBroadParentCandidateTag(tag));
+  const suggestedExistingTags = addedTags.filter((tag) => includesTag(availableTagNames, tag) && !isBroadParentCandidateTag(tag));
+  const newTags = addedTags.filter((tag) => !includesTag(availableTagNames, tag) && !isBroadParentCandidateTag(tag));
   const suggestedDocumentType = suggestion.suggested_document_type?.trim() || "";
   const suggestedDocumentTypeExists = suggestedDocumentType
     ? sortedAvailableDocumentTypes.some((documentType) => tagEquals(documentType.name, suggestedDocumentType))
@@ -251,6 +257,22 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                   label: "Remove",
                   onClick: () => onTagDeletion(suggestion.id, tag),
                   className: "bg-blue-200 text-blue-800 hover:bg-red-100 hover:text-red-700 dark:bg-blue-800 dark:text-blue-100 dark:hover:bg-red-900 dark:hover:text-red-100",
+                })
+              )}
+            </div>
+            <div>
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Broad parent candidates</h4>
+              <p className="mb-2 text-xs text-amber-700 dark:text-amber-200">
+                These are configured parent buckets. Prefer creating a specific child tag under the bucket, or keep the broad tag only if the document cannot be classified more precisely.
+              </p>
+              {renderTagList(
+                broadParentCandidateTags,
+                "No broad parent buckets were suggested.",
+                "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
+                (tag) => ({
+                  label: "Remove",
+                  onClick: () => onTagDeletion(suggestion.id, tag),
+                  className: "bg-amber-200 text-amber-900 hover:bg-red-100 hover:text-red-700 dark:bg-amber-800 dark:text-amber-100 dark:hover:bg-red-900 dark:hover:text-red-100",
                 })
               )}
             </div>

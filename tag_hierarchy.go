@@ -95,6 +95,7 @@ func buildDetailedTags(tags []Tag, selectionMode string, nonClassificationTags m
 }
 
 func buildDetailedTagsWithParentCandidates(tags []Tag, selectionMode string, nonClassificationTags map[string]bool, parentCandidateNames map[string]bool) []DetailedTag {
+	hasExplicitParentCandidates := len(parentCandidateNames) > 0
 	tagsByID := map[int]Tag{}
 	childrenByParentID := map[int][]Tag{}
 	for _, tag := range tags {
@@ -120,12 +121,12 @@ func buildDetailedTagsWithParentCandidates(tags []Tag, selectionMode string, non
 		isWorkflow := workflowTags[nameKey]
 		isSystem := nonClassificationTags[nameKey]
 		isParentCandidate := !isWorkflow && !isSystem
-		if len(parentCandidateNames) > 0 {
+		if hasExplicitParentCandidates {
 			isParentCandidate = parentCandidateNames[nameKey]
 		}
 		isApplicable := true
 		if selectionMode == tagSelectionModeApplicable {
-			isApplicable = !hasChildren && !isWorkflow && !isSystem
+			isApplicable = !hasChildren && !isWorkflow && !isSystem && !(hasExplicitParentCandidates && isParentCandidate)
 		}
 
 		detailedTags = append(detailedTags, DetailedTag{

@@ -43,7 +43,9 @@ func TestBuildDetailedTagsParentCandidatesCanBeRestricted(t *testing.T) {
 	}
 
 	assert.True(t, byName["Finanzen"].IsParentCandidate)
+	assert.False(t, byName["Finanzen"].IsApplicable)
 	assert.False(t, byName["Kontoauszug"].IsParentCandidate)
+	assert.True(t, byName["Kontoauszug"].IsApplicable)
 }
 
 func TestNormalizeTagNamesForApplyAddsDerivedParents(t *testing.T) {
