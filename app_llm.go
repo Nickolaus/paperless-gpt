@@ -87,6 +87,75 @@ func filterSuggestedTags(suggestedTags []string, originalTags []string, availabl
 	return filteredTags
 }
 
+func filterSuggestedRemoveTags(suggestedRemoveTags []string, originalTags []string) []string {
+	originalByName := map[string]string{}
+	protectedTags := workflowTagNames()
+	for tagName := range configuredNonClassificationTagNames() {
+		protectedTags[tagName] = true
+	}
+	semanticOriginalCount := 0
+	for _, tag := range originalTags {
+		tag = cleanLLMScalar(tag)
+		if tag != "" {
+			originalByName[strings.ToLower(tag)] = tag
+			if !protectedTags[strings.ToLower(tag)] {
+				semanticOriginalCount++
+			}
+		}
+	}
+
+	removedTags := []string{}
+	for _, tag := range suggestedRemoveTags {
+		tag = cleanLLMScalar(tag)
+		if tag == "" {
+			continue
+		}
+		tagKey := strings.ToLower(tag)
+		if protectedTags[tagKey] {
+			continue
+		}
+		if originalTag, exists := originalByName[tagKey]; exists {
+			removedTags = appendUniqueStrings(removedTags, originalTag)
+		}
+	}
+	if semanticOriginalCount > 0 && len(removedTags) >= semanticOriginalCount {
+		return nil
+	}
+	return removedTags
+}
+
+func appendUniqueStrings(values []string, additions ...string) []string {
+	for _, addition := range additions {
+		addition = cleanLLMScalar(addition)
+		if addition == "" {
+			continue
+		}
+		exists := false
+		for _, value := range values {
+			if strings.EqualFold(value, addition) {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			values = append(values, addition)
+		}
+	}
+	return values
+}
+
+func removeTagNames(tagNames []string, removeTags []string) []string {
+	removeSet := tagNameSet(removeTags)
+	result := []string{}
+	for _, tagName := range tagNames {
+		cleanedTag := cleanLLMScalar(tagName)
+		if cleanedTag != "" && !removeSet[strings.ToLower(cleanedTag)] {
+			result = appendUniqueStrings(result, cleanedTag)
+		}
+	}
+	return result
+}
+
 func filterSuggestedTagsWithParents(suggestedTags []string, originalTags []string, availableTags []string, detailedTags []DetailedTag, allowNewTags bool) ([]string, map[string]int) {
 	filteredTags := []string{}
 	addTagParents := map[string]int{}
@@ -755,6 +824,7 @@ type suggestionGenerationContext struct {
 type coreMetadataSuggestion struct {
 	Title           string
 	Tags            []string
+	RemoveTags      []string
 	AddTagParents   map[string]int
 	Correspondent   string
 	DocumentType    string
@@ -765,6 +835,7 @@ type coreMetadataSuggestion struct {
 type coreMetadataLLMResponse struct {
 	Title         string   `json:"title"`
 	Tags          []string `json:"tags"`
+	RemoveTags    []string `json:"remove_tags"`
 	Correspondent string   `json:"correspondent"`
 	DocumentType  string   `json:"document_type"`
 	CreatedDate   string   `json:"created_date"`
@@ -919,6 +990,8 @@ func (app *App) getSuggestedCoreMetadata(ctx context.Context, suggestionRequest 
 			generationContext.availableDetailedTags,
 			createNewTags,
 		)
+		result.RemoveTags = filterSuggestedRemoveTags(llmResponse.RemoveTags, doc.Tags)
+		result.Tags = removeTagNames(result.Tags, result.RemoveTags)
 		result.GeneratedFields++
 	}
 	if suggestionRequest.GenerateCorrespondents {
@@ -947,6 +1020,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	content := sanitize.Sanitize(doc.Content)
 	suggestedTitle := doc.Title
 	var suggestedTags []string
+	var suggestedRemoveTags []string
 	var suggestedTagParents map[string]int
 	var suggestedCorrespondent string
 	var suggestedDocumentType string
@@ -982,6 +1056,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			}
 			if suggestionRequest.GenerateTags {
 				suggestedTags = metadata.Tags
+				suggestedRemoveTags = metadata.RemoveTags
 				suggestedTagParents = metadata.AddTagParents
 				successfulFields++
 			}
@@ -1082,7 +1157,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	// Remove manual tag from the list of suggested tags
-	suggestion.RemoveTags = []string{manualTag, autoTag}
+	suggestion.RemoveTags = appendUniqueStrings(suggestedRemoveTags, manualTag, autoTag)
 
 	// Add auto-processing complete tag if configured (only for auto-processing, not manual review)
 	if app.autoTagComplete != "" && suggestionRequest.IsAutoProcessing {
