@@ -124,10 +124,16 @@ func TestCreatedTagRequestPayloadCanSetOwnerAndPermissions(t *testing.T) {
 	t.Setenv("PAPERLESS_CREATED_TAG_OWNER_ID", "null")
 	t.Setenv("PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS", "1, 2,3")
 	t.Setenv("PAPERLESS_CREATED_TAG_CHANGE_GROUP_IDS", "1,2,3")
+	t.Setenv("PAPERLESS_CREATED_TAG_MATCHING_ALGORITHM", "6")
+	t.Setenv("PAPERLESS_CREATED_TAG_MATCH", "ignored for auto")
+	t.Setenv("PAPERLESS_CREATED_TAG_IS_INSENSITIVE", "true")
 
 	payload, err := createdTagRequestPayload("Kfz-Versicherung", nil)
 	require.NoError(t, err)
 
+	assert.Equal(t, 6, payload["matching_algorithm"])
+	assert.Equal(t, "ignored for auto", payload["match"])
+	assert.Equal(t, true, payload["is_insensitive"])
 	assert.Contains(t, payload, "owner")
 	assert.Nil(t, payload["owner"])
 	assert.Equal(t, map[string]interface{}{
@@ -148,6 +154,22 @@ func TestCreatedTagRequestPayloadRejectsInvalidPermissionConfig(t *testing.T) {
 	_, err := createdTagRequestPayload("Kfz-Versicherung", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS")
+}
+
+func TestCreatedTagRequestPayloadRejectsInvalidMatchingConfig(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_TAG_MATCHING_ALGORITHM", "auto")
+
+	_, err := createdTagRequestPayload("Kfz-Versicherung", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PAPERLESS_CREATED_TAG_MATCHING_ALGORITHM")
+}
+
+func TestCreatedTagRequestPayloadOmitsBlankMatch(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_TAG_MATCH", "  ")
+
+	payload, err := createdTagRequestPayload("Kfz-Versicherung", nil)
+	require.NoError(t, err)
+	assert.NotContains(t, payload, "match")
 }
 
 // teardown closes the mock server

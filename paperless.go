@@ -1681,6 +1681,23 @@ func createdTagRequestPayload(tagName string, parentID *int) (map[string]interfa
 	if parentID != nil {
 		payload["parent"] = *parentID
 	}
+	if value := strings.TrimSpace(os.Getenv("PAPERLESS_CREATED_TAG_MATCHING_ALGORITHM")); value != "" {
+		matchingAlgorithm, err := strconv.Atoi(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid PAPERLESS_CREATED_TAG_MATCHING_ALGORITHM %q: %w", value, err)
+		}
+		payload["matching_algorithm"] = matchingAlgorithm
+	}
+	if value := os.Getenv("PAPERLESS_CREATED_TAG_MATCH"); strings.TrimSpace(value) != "" {
+		payload["match"] = value
+	}
+	if value := strings.TrimSpace(os.Getenv("PAPERLESS_CREATED_TAG_IS_INSENSITIVE")); value != "" {
+		isInsensitive, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid PAPERLESS_CREATED_TAG_IS_INSENSITIVE %q: %w", value, err)
+		}
+		payload["is_insensitive"] = isInsensitive
+	}
 
 	if owner, configured, err := parseOptionalObjectOwner(os.Getenv("PAPERLESS_CREATED_TAG_OWNER_ID")); err != nil {
 		return nil, err
