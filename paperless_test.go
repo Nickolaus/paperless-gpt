@@ -231,6 +231,49 @@ func TestGetAllTagsDetailedHandlesOptionalParentShapes(t *testing.T) {
 	assert.Equal(t, 1, *tags[2].ParentID)
 }
 
+func TestGetAllTagsDetailedFlattensNestedChildren(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	page := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{
+				"id":   1,
+				"name": "Fahrzeug",
+				"children": []map[string]interface{}{
+					{"id": 2, "name": "Kfz-Service", "parent": 1},
+					{"id": 3, "name": "Kennzeichen", "children": []map[string]interface{}{
+						{"id": 4, "name": "COE-CH 881"},
+					}},
+				},
+			},
+		},
+		"next": nil,
+	}
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(page)
+	})
+
+	tags, err := env.client.GetAllTagsDetailed(context.Background())
+	require.NoError(t, err)
+	require.Len(t, tags, 4)
+
+	byName := map[string]Tag{}
+	for _, tag := range tags {
+		byName[tag.Name] = tag
+	}
+
+	assert.Nil(t, byName["Fahrzeug"].ParentID)
+	require.NotNil(t, byName["Kfz-Service"].ParentID)
+	assert.Equal(t, 1, *byName["Kfz-Service"].ParentID)
+	require.NotNil(t, byName["Kennzeichen"].ParentID)
+	assert.Equal(t, 1, *byName["Kennzeichen"].ParentID)
+	require.NotNil(t, byName["COE-CH 881"].ParentID)
+	assert.Equal(t, 3, *byName["COE-CH 881"].ParentID)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)

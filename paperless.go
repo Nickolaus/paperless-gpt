@@ -68,13 +68,15 @@ type Tag struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
 	ParentID *int   `json:"-"`
+	Children []Tag  `json:"children,omitempty"`
 }
 
 func (tag *Tag) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		ID     int             `json:"id"`
-		Name   string          `json:"name"`
-		Parent json.RawMessage `json:"parent"`
+		ID       int             `json:"id"`
+		Name     string          `json:"name"`
+		Parent   json.RawMessage `json:"parent"`
+		Children []Tag           `json:"children"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -83,6 +85,13 @@ func (tag *Tag) UnmarshalJSON(data []byte) error {
 	tag.ID = raw.ID
 	tag.Name = raw.Name
 	tag.ParentID = nil
+	tag.Children = raw.Children
+	for index := range tag.Children {
+		if tag.Children[index].ParentID == nil {
+			parentID := tag.ID
+			tag.Children[index].ParentID = &parentID
+		}
+	}
 
 	if len(raw.Parent) == 0 || string(raw.Parent) == "null" {
 		return nil
@@ -294,7 +303,7 @@ func (client *PaperlessClient) GetAllTagsDetailed(ctx context.Context) ([]Tag, e
 			return nil, err
 		}
 
-		allTags = append(allTags, tagsResponse.Results...)
+		allTags = append(allTags, flattenTagTree(tagsResponse.Results)...)
 
 		// Extract relative path from the Next URL
 		if tagsResponse.Next != "" {
@@ -318,6 +327,34 @@ func (client *PaperlessClient) GetAllTagsDetailed(ctx context.Context) ([]Tag, e
 	}
 
 	return allTags, nil
+}
+
+func flattenTagTree(tags []Tag) []Tag {
+	flattened := make([]Tag, 0, len(tags))
+	seen := map[int]bool{}
+
+	var appendTag func(tag Tag)
+	appendTag = func(tag Tag) {
+		children := tag.Children
+		tag.Children = nil
+		if !seen[tag.ID] {
+			seen[tag.ID] = true
+			flattened = append(flattened, tag)
+		}
+		for index := range children {
+			if children[index].ParentID == nil {
+				parentID := tag.ID
+				children[index].ParentID = &parentID
+			}
+			appendTag(children[index])
+		}
+	}
+
+	for _, tag := range tags {
+		appendTag(tag)
+	}
+
+	return flattened
 }
 
 // GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)
