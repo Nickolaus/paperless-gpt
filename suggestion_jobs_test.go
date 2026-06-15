@@ -265,9 +265,12 @@ func TestProcessSuggestionJobTimeout(t *testing.T) {
 	t.Setenv("SUGGESTION_JOB_TIMEOUT_SECONDS", "1")
 
 	previousTitleTemplate := titleTemplate
+	previousMetadataTemplate := metadataTemplate
 	titleTemplate = template.Must(template.New("title").Parse("{{.Content}}"))
+	metadataTemplate = template.Must(template.New("metadata").Parse("{{.Content}}"))
 	t.Cleanup(func() {
 		titleTemplate = previousTitleTemplate
+		metadataTemplate = previousMetadataTemplate
 	})
 
 	app := &App{

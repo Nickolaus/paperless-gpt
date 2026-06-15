@@ -71,6 +71,101 @@ func sortTagsByName(tags []Tag) {
 	})
 }
 
+func cleanLLMScalar(value string) string {
+	value = stripMarkdown(stripReasoning(value))
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, "\"'`")
+	return strings.TrimSpace(value)
+}
+
+func filterSuggestedTags(suggestedTags []string, originalTags []string, availableTags []string, allowNewTags bool) []string {
+	allTags := append([]string{}, suggestedTags...)
+	allTags = append(allTags, originalTags...)
+
+	filteredTags := []string{}
+	for _, tag := range allTags {
+		tag = cleanLLMScalar(tag)
+		if tag == "" {
+			continue
+		}
+
+		matched := false
+		for _, availableTag := range availableTags {
+			if strings.EqualFold(tag, availableTag) {
+				filteredTags = append(filteredTags, availableTag)
+				matched = true
+				break
+			}
+		}
+		if !matched && allowNewTags {
+			filteredTags = append(filteredTags, tag)
+		}
+	}
+
+	slices.Sort(filteredTags)
+	return slices.Compact(filteredTags)
+}
+
+func validateSuggestedCorrespondent(suggestion string, availableCorrespondents []string, blacklist []string) string {
+	suggestion = cleanLLMScalar(suggestion)
+	if suggestion == "" || strings.EqualFold(suggestion, "unknown") {
+		return ""
+	}
+	for _, blacklisted := range blacklist {
+		if strings.EqualFold(suggestion, blacklisted) {
+			return ""
+		}
+	}
+	for _, availableCorrespondent := range availableCorrespondents {
+		if strings.EqualFold(suggestion, availableCorrespondent) {
+			return availableCorrespondent
+		}
+	}
+	return suggestion
+}
+
+func isLikelyNarrowDocumentType(suggestion string) bool {
+	normalized := strings.ToLower(cleanLLMScalar(suggestion))
+	narrowTerms := []string{
+		"liste",
+		"übersicht",
+		"uebersicht",
+		"aufstellung",
+		"zusammenfassung",
+		"summary",
+		"overview",
+		"list",
+	}
+	for _, term := range narrowTerms {
+		if strings.Contains(normalized, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateSuggestedDocumentType(suggestion string, availableDocumentTypes []string, allowNewDocumentTypes bool, logger *logrus.Entry) string {
+	suggestion = cleanLLMScalar(suggestion)
+	if suggestion == "" {
+		return ""
+	}
+
+	for _, docType := range availableDocumentTypes {
+		if strings.EqualFold(suggestion, docType) {
+			return docType
+		}
+	}
+
+	if allowNewDocumentTypes && !isLikelyNarrowDocumentType(suggestion) {
+		return suggestion
+	}
+
+	if logger != nil {
+		logger.Warnf("LLM suggested document type '%s' not accepted as a reusable document type", suggestion)
+	}
+	return ""
+}
+
 // getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
 func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
 	likelyLanguage := getLikelyLanguage()
@@ -198,50 +293,7 @@ func (app *App) getSuggestedTags(
 	response := stripReasoning(completion.Choices[0].Content)
 
 	suggestedTags := strings.Split(response, ",")
-	for i, tag := range suggestedTags {
-		suggestedTags[i] = strings.TrimSpace(tag)
-	}
-
-	// append the original tags to the suggested tags
-	suggestedTags = append(suggestedTags, originalTags...)
-	// Remove duplicates
-	slices.Sort(suggestedTags)
-	suggestedTags = slices.Compact(suggestedTags)
-
-	// Filter out tags that are not in the available tags list (unless CREATE_NEW_TAGS is enabled)
-	if createNewTags {
-		// When creating new tags is enabled, keep all non-empty suggested tags
-		filteredTags := []string{}
-		for _, tag := range suggestedTags {
-			if tag != "" {
-				// Use the available tag's casing if it exists
-				matched := false
-				for _, availableTag := range availableTags {
-					if strings.EqualFold(tag, availableTag) {
-						filteredTags = append(filteredTags, availableTag)
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					filteredTags = append(filteredTags, tag)
-				}
-			}
-		}
-		return filteredTags, nil
-	}
-
-	filteredTags := []string{}
-	for _, tag := range suggestedTags {
-		for _, availableTag := range availableTags {
-			if strings.EqualFold(tag, availableTag) {
-				filteredTags = append(filteredTags, availableTag)
-				break
-			}
-		}
-	}
-
-	return filteredTags, nil
+	return filterSuggestedTags(suggestedTags, originalTags, availableTags, createNewTags), nil
 }
 
 func findExactDocumentTypeMatch(text string, availableDocumentTypes []string) string {
@@ -329,21 +381,7 @@ func (app *App) getSuggestedDocumentType(
 
 	response := strings.TrimSpace(stripReasoning(completion.Choices[0].Content))
 
-	// Validate that the response is in the available document types list
-	for _, docType := range availableDocumentTypes {
-		if strings.EqualFold(response, docType) {
-			return docType, nil // Return the exact name from available types
-		}
-	}
-	if createNewDocumentTypes && response != "" {
-		return response, nil
-	}
-
-	// If not found in available types, return empty string
-	if response != "" {
-		logger.Warnf("LLM suggested document type '%s' not found in available types, ignoring", response)
-	}
-	return "", nil
+	return validateSuggestedDocumentType(response, availableDocumentTypes, createNewDocumentTypes, logger), nil
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
@@ -595,6 +633,23 @@ type suggestionGenerationContext struct {
 	availableDocumentTypeContext string
 }
 
+type coreMetadataSuggestion struct {
+	Title           string
+	Tags            []string
+	Correspondent   string
+	DocumentType    string
+	CreatedDate     string
+	GeneratedFields int
+}
+
+type coreMetadataLLMResponse struct {
+	Title         string   `json:"title"`
+	Tags          []string `json:"tags"`
+	Correspondent string   `json:"correspondent"`
+	DocumentType  string   `json:"document_type"`
+	CreatedDate   string   `json:"created_date"`
+}
+
 // generateDocumentSuggestions generates suggestions for a set of documents.
 func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, logger *logrus.Entry) ([]DocumentSuggestion, error) {
 	return app.generateDocumentSuggestionsSequential(ctx, suggestionRequest, "", logger)
@@ -680,13 +735,108 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 	return generationContext, nil
 }
 
+func (app *App) getSuggestedCoreMetadata(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, doc Document, generationContext suggestionGenerationContext, logger *logrus.Entry) (coreMetadataSuggestion, error) {
+	settingsMutex.RLock()
+	titleSchema := settings.TitleSchema
+	settingsMutex.RUnlock()
+	if titleSchema == "" {
+		titleSchema = defaultTitleSchema
+	}
+
+	availableTags := removeTagFromList(generationContext.availableTagNames, manualTag)
+	availableTags = removeTagFromList(availableTags, autoTag)
+	availableTags = removeTagFromList(availableTags, autoOcrTag)
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	templateData := map[string]interface{}{
+		"Language":                     getLikelyLanguage(),
+		"Title":                        doc.Title,
+		"TitleSchema":                  titleSchema,
+		"Today":                        getTodayDate(),
+		"Content":                      doc.Content,
+		"GenerateTitles":               suggestionRequest.GenerateTitles,
+		"GenerateTags":                 suggestionRequest.GenerateTags,
+		"GenerateCorrespondents":       suggestionRequest.GenerateCorrespondents,
+		"GenerateDocumentTypes":        suggestionRequest.GenerateDocumentTypes,
+		"GenerateCreatedDate":          suggestionRequest.GenerateCreatedDate,
+		"AvailableTags":                availableTags,
+		"AvailableTagContext":          generationContext.availableTagContext,
+		"OriginalTags":                 doc.Tags,
+		"AvailableCorrespondents":      generationContext.availableCorrespondentNames,
+		"BlackList":                    correspondentBlackList,
+		"AvailableDocumentTypeContext": generationContext.availableDocumentTypeContext,
+	}
+
+	availableTokens, err := getAvailableTokensForContent(metadataTemplate, templateData)
+	if err != nil {
+		return coreMetadataSuggestion{}, fmt.Errorf("error calculating available tokens for metadata: %v", err)
+	}
+
+	truncatedContent, err := truncateContentByTokens(doc.Content, availableTokens)
+	if err != nil {
+		return coreMetadataSuggestion{}, fmt.Errorf("error truncating content for metadata: %v", err)
+	}
+
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	if err := metadataTemplate.Execute(&promptBuffer, templateData); err != nil {
+		return coreMetadataSuggestion{}, fmt.Errorf("error executing metadata template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+	logger.WithField("prompt_length", len(prompt)).Debug("Core metadata suggestion prompt prepared")
+
+	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: prompt},
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	}, llms.WithJSONMode(), llms.WithTemperature(0))
+	if err != nil {
+		return coreMetadataSuggestion{}, fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	response := stripMarkdown(stripReasoning(completion.Choices[0].Content))
+	var llmResponse coreMetadataLLMResponse
+	if err := json.Unmarshal([]byte(response), &llmResponse); err != nil {
+		return coreMetadataSuggestion{}, fmt.Errorf("error parsing metadata JSON response: %v", err)
+	}
+
+	result := coreMetadataSuggestion{}
+	if suggestionRequest.GenerateTitles {
+		result.Title = cleanLLMScalar(llmResponse.Title)
+		result.GeneratedFields++
+	}
+	if suggestionRequest.GenerateTags {
+		result.Tags = filterSuggestedTags(llmResponse.Tags, doc.Tags, availableTags, createNewTags)
+		result.GeneratedFields++
+	}
+	if suggestionRequest.GenerateCorrespondents {
+		result.Correspondent = validateSuggestedCorrespondent(cleanLLMScalar(llmResponse.Correspondent), generationContext.availableCorrespondentNames, correspondentBlackList)
+		result.GeneratedFields++
+	}
+	if suggestionRequest.GenerateDocumentTypes {
+		result.DocumentType = validateSuggestedDocumentType(cleanLLMScalar(llmResponse.DocumentType), generationContext.availableDocumentTypeNames, createNewDocumentTypes, logger)
+		result.GeneratedFields++
+	}
+	if suggestionRequest.GenerateCreatedDate {
+		result.CreatedDate = cleanLLMScalar(llmResponse.CreatedDate)
+		result.GeneratedFields++
+	}
+
+	return result, nil
+}
+
 func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, doc Document, generationContext suggestionGenerationContext, logger *logrus.Entry) (DocumentSuggestion, error) {
 	documentID := doc.ID
 	docLogger := documentLogger(documentID)
 	startTime := time.Now()
 	docLogger.Printf("Processing Document ID %d...", documentID)
 
-	content := doc.Content
 	suggestedTitle := doc.Title
 	var suggestedTags []string
 	var suggestedCorrespondent string
@@ -696,62 +846,46 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	fieldErrors := map[string]string{}
 	successfulFields := 0
 
-	if suggestionRequest.GenerateTitles {
-		var err error
-		suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, generationContext, docLogger)
+	if suggestionRequest.GenerateTitles || suggestionRequest.GenerateTags || suggestionRequest.GenerateCorrespondents || suggestionRequest.GenerateDocumentTypes || suggestionRequest.GenerateCreatedDate {
+		metadata, err := app.getSuggestedCoreMetadata(ctx, suggestionRequest, doc, generationContext, docLogger)
 		if err != nil {
 			docLogger.Errorf("Error processing document %d: %v", documentID, err)
-			fieldErrors["title"] = err.Error()
-		} else {
-			successfulFields++
-		}
-	}
-
-	if suggestionRequest.GenerateTags {
-		var err error
-		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, generationContext.availableTagContext, doc.Tags, docLogger)
-		if err != nil {
-			logger.Errorf("Error generating tags for document %d: %v", documentID, err)
-			fieldErrors["tags"] = err.Error()
-		} else {
-			successfulFields++
-		}
-	}
-
-	if suggestionRequest.GenerateCorrespondents {
-		var err error
-		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, generationContext.availableCorrespondentNames, correspondentBlackList)
-		if err != nil {
-			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
-			fieldErrors["correspondent"] = err.Error()
-		} else {
-			successfulFields++
-		}
-	}
-
-	if suggestionRequest.GenerateDocumentTypes {
-		if len(generationContext.availableDocumentTypeNames) == 0 {
-			docLogger.Debug("Document type generation is enabled, but no document types are available in paperless-ngx.")
-		} else {
-			var err error
-			suggestedDocumentType, err = app.getSuggestedDocumentType(ctx, content, suggestedTitle, generationContext.availableDocumentTypeNames, docLogger)
-			if err != nil {
-				log.Errorf("Error generating document type for document %d: %v", documentID, err)
+			if suggestionRequest.GenerateTitles {
+				fieldErrors["title"] = err.Error()
+			}
+			if suggestionRequest.GenerateTags {
+				fieldErrors["tags"] = err.Error()
+			}
+			if suggestionRequest.GenerateCorrespondents {
+				fieldErrors["correspondent"] = err.Error()
+			}
+			if suggestionRequest.GenerateDocumentTypes {
 				fieldErrors["document_type"] = err.Error()
-			} else {
+			}
+			if suggestionRequest.GenerateCreatedDate {
+				fieldErrors["created_date"] = err.Error()
+			}
+		} else {
+			if suggestionRequest.GenerateTitles {
+				suggestedTitle = metadata.Title
 				successfulFields++
 			}
-		}
-	}
-
-	if suggestionRequest.GenerateCreatedDate {
-		var err error
-		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger)
-		if err != nil {
-			log.Errorf("Error generating createdDate for document %d: %v", documentID, err)
-			fieldErrors["created_date"] = err.Error()
-		} else {
-			successfulFields++
+			if suggestionRequest.GenerateTags {
+				suggestedTags = metadata.Tags
+				successfulFields++
+			}
+			if suggestionRequest.GenerateCorrespondents {
+				suggestedCorrespondent = metadata.Correspondent
+				successfulFields++
+			}
+			if suggestionRequest.GenerateDocumentTypes {
+				suggestedDocumentType = metadata.DocumentType
+				successfulFields++
+			}
+			if suggestionRequest.GenerateCreatedDate {
+				suggestedCreatedDate = metadata.CreatedDate
+				successfulFields++
+			}
 		}
 	}
 

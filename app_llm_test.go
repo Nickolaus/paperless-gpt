@@ -493,6 +493,16 @@ func TestCreateNewDocumentTypesFiltering(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "Bescheid", documentType)
 	})
+
+	t.Run("createNewDocumentTypes rejects narrow list-like document type", func(t *testing.T) {
+		createNewDocumentTypes = true
+		mockLLM := &mockLLM{Response: "Vertragsliste"}
+		app := &App{LLM: mockLLM}
+
+		documentType, err := app.getSuggestedDocumentType(ctx, "Some document content", "Unknown document", availableDocumentTypes, testLogger)
+		require.NoError(t, err)
+		assert.Empty(t, documentType)
+	})
 }
 
 func TestStripReasoning(t *testing.T) {
@@ -562,40 +572,63 @@ func TestPrepareSuggestionGenerationContextFetchesOnlyRequestedMetadata(t *testi
 	assert.Equal(t, "Invoice", contextData.availableDocumentTypeContext)
 }
 
-func TestGenerateSingleDocumentSuggestionKeepsSuccessfulFieldsWhenOneFieldFails(t *testing.T) {
+func TestGenerateSingleDocumentSuggestionUsesSingleCoreMetadataCall(t *testing.T) {
 	var err error
-	titleTemplate, err = template.New("title").Parse(testTitleTemplate)
-	require.NoError(t, err)
-	createdDateTemplate, err = template.New("created_date").Parse(testCreatedDateContentTemplate)
+	metadataTemplate, err = template.New("metadata").Parse(`{{.Content}}`)
 	require.NoError(t, err)
 
-	app := &App{
-		LLM: &sequenceLLM{
-			responses: []string{"Useful title"},
-			errors:    []error{nil, fmt.Errorf("created date failed")},
-		},
+	originalCreateNewTags := createNewTags
+	originalCreateNewDocumentTypes := createNewDocumentTypes
+	createNewTags = false
+	createNewDocumentTypes = false
+	t.Cleanup(func() {
+		createNewTags = originalCreateNewTags
+		createNewDocumentTypes = originalCreateNewDocumentTypes
+	})
+
+	llm := &sequenceLLM{
+		responses: []string{`{
+			"title": "Example Insurance - Policy Overview - Vehicle Coverage",
+			"tags": ["Versicherung", "Neue KI Fantasie"],
+			"correspondent": "Example Insurance",
+			"document_type": "Rechnung",
+			"created_date": "2025-11-11"
+		}`},
 	}
+	app := &App{LLM: llm}
 
 	suggestion, err := app.generateSingleDocumentSuggestion(
 		context.Background(),
 		GenerateSuggestionsRequest{
-			GenerateTitles:      true,
-			GenerateCreatedDate: true,
+			GenerateTitles:         true,
+			GenerateTags:           true,
+			GenerateCorrespondents: true,
+			GenerateDocumentTypes:  true,
+			GenerateCreatedDate:    true,
 		},
 		Document{
 			ID:      123,
 			Title:   "Original",
 			Content: "Document content",
-			Tags:    []string{manualTag},
+			Tags:    []string{manualTag, "Fahrzeug"},
 		},
-		suggestionGenerationContext{},
+		suggestionGenerationContext{
+			availableTagNames:            []string{"Fahrzeug", "Versicherung", manualTag},
+			availableCorrespondentNames:  []string{"Example Insurance"},
+			availableDocumentTypeNames:   []string{"Rechnung"},
+			availableDocumentTypeContext: "Rechnung",
+		},
 		logrus.WithField("test", "partial_fields"),
 	)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Useful title", suggestion.SuggestedTitle)
-	require.Contains(t, suggestion.FieldErrors, "created_date")
-	assert.Contains(t, suggestion.FieldErrors["created_date"], "created date failed")
+	assert.Equal(t, 1, llm.callIndex)
+	assert.Equal(t, "Example Insurance - Policy Overview - Vehicle Coverage", suggestion.SuggestedTitle)
+	assert.Equal(t, []string{"Fahrzeug", "Versicherung"}, suggestion.SuggestedTags)
+	assert.Equal(t, "Example Insurance", suggestion.SuggestedCorrespondent)
+	assert.Equal(t, "Rechnung", suggestion.SuggestedDocumentType)
+	assert.Equal(t, "2025-11-11", suggestion.SuggestedCreatedDate)
+	assert.Empty(t, suggestion.FieldErrors)
 }
 
 func TestFormatTagTaxonomy(t *testing.T) {

@@ -668,6 +668,25 @@ Each template has access to specific variables:
 - `{{.Content}}` - Document content text
 - `{{.CreateNewDocumentTypes}}` - Whether new document types may be suggested
 
+**metadata_prompt.tmpl**:
+
+- `{{.Language}}` - Target language
+- `{{.Title}}` - Original document title
+- `{{.TitleSchema}}` - User-configured title schema from Settings
+- `{{.Today}}` - Current date for fallback created-date suggestions
+- `{{.Content}}` - Document content text
+- `{{.GenerateTitles}}` - Whether a title suggestion was requested
+- `{{.GenerateTags}}` - Whether tag suggestions were requested
+- `{{.GenerateCorrespondents}}` - Whether a correspondent suggestion was requested
+- `{{.GenerateDocumentTypes}}` - Whether a document type suggestion was requested
+- `{{.GenerateCreatedDate}}` - Whether a created-date suggestion was requested
+- `{{.AvailableTags}}` - List of existing tags in paperless-ngx, excluding workflow tags
+- `{{.AvailableTagContext}}` - Current tag taxonomy, preserving parent-child hierarchy when available
+- `{{.OriginalTags}}` - Document's current tags
+- `{{.AvailableCorrespondents}}` - List of existing correspondents in paperless-ngx
+- `{{.BlackList}}` - Correspondent names excluded from suggestions
+- `{{.AvailableDocumentTypeContext}}` - Current document types formatted for prompt context
+
 **ocr_prompt.tmpl**:
 
 - `{{.Language}}` - Target language
