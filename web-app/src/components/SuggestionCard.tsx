@@ -174,16 +174,23 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
   return (
     <div className="w-full bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
-      <div className="flex items-center group relative">
-        <div className="relative min-w-0">
-          <h3 className="text-lg font-semibold break-words [overflow-wrap:anywhere] text-gray-800 dark:text-gray-200">
+      <div className="flex items-center relative">
+        <div className="relative min-w-0 flex-1">
+          <h3 className="document-title-wrap text-lg font-semibold text-gray-800 dark:text-gray-200">
             {document.title}
           </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 truncate">
-            {document.content.length > 40
-              ? `${document.content.substring(0, 40)}...`
-              : document.content}
-          </p>
+          <div className="group/preview relative mt-2 min-w-0 w-full">
+            <p tabIndex={0} className="truncate text-sm text-gray-600 dark:text-gray-400">
+              {document.content.length > 40
+                ? `${document.content.substring(0, 40)}...`
+                : document.content}
+            </p>
+            <div className="pointer-events-none absolute left-0 right-0 top-full z-20 mt-2 opacity-0 transition-opacity duration-200 group-hover/preview:pointer-events-auto group-hover/preview:opacity-100 group-focus-within/preview:pointer-events-auto group-focus-within/preview:opacity-100">
+              <div className="max-h-64 overflow-y-auto rounded-md bg-gray-800 p-3 text-sm text-white shadow-lg dark:bg-gray-900">
+                <p className="whitespace-pre-wrap">{document.content}</p>
+              </div>
+            </div>
+          </div>
           <div className="mt-4">
             {document.tags.filter((tag) => tag.trim()).map((tag) => (
               <span
@@ -193,11 +200,6 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 {tag}
               </span>
             ))}
-          </div>
-        </div>
-        <div className="absolute inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4 rounded-md">
-          <div className="text-sm text-white p-2 bg-gray-800 dark:bg-gray-900 rounded-md w-full max-h-full overflow-y-auto">
-            <p className="mt-2 whitespace-pre-wrap">{document.content}</p>
           </div>
         </div>
       </div>
