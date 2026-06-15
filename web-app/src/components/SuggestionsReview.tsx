@@ -6,6 +6,10 @@ import {
   DocumentTypeOption,
   SuggestionJobFailedDocument,
   TagOption,
+  getDescendantNames,
+  getParentChain,
+  includesTag,
+  uniqueTags,
 } from "../DocumentProcessor";
 import SuggestionCard from "./SuggestionCard";
 import Button from "./ui/Button";
@@ -23,6 +27,9 @@ import {
 interface SuggestionsReviewProps {
   suggestions: DocumentSuggestion[];
   availableTags: TagOption[];
+  tagSelectionMode: "all" | "applicable";
+  tagDerivedParents: boolean;
+  createNewTagsEnabled: boolean;
   availableDocumentTypes: DocumentTypeOption[];
   createNewDocumentTypesEnabled: boolean;
   filterTag: string | null;
@@ -35,6 +42,9 @@ interface SuggestionsReviewProps {
 const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   suggestions,
   availableTags,
+  tagSelectionMode,
+  tagDerivedParents,
+  createNewTagsEnabled,
   availableDocumentTypes,
   createNewDocumentTypesEnabled,
   filterTag,
@@ -78,15 +88,40 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
     onTitleChange: (docId, title) =>
       updateItem(docId, (item) => ({ ...item, suggested_title: title })),
     onTagAddition: (docId, tag) =>
-      updateItem(docId, (item) => ({
-        ...item,
-        suggested_tags: [...(item.suggested_tags || []), tag.name],
-      })),
+      updateItem(docId, (item) => {
+        let nextTags = uniqueTags([...(item.suggested_tags || []), tag.name]);
+        if (tagDerivedParents) {
+          getParentChain(availableTags, tag.name).forEach((parent) => {
+            if (!includesTag(nextTags, parent.name)) {
+              nextTags = [...nextTags, parent.name];
+            }
+          });
+        }
+        return { ...item, suggested_tags: nextTags };
+      }),
     onTagDeletion: (docId, index) =>
-      updateItem(docId, (item) => ({
-        ...item,
-        suggested_tags: item.suggested_tags?.filter((_, i) => i !== index),
-      })),
+      updateItem(docId, (item) => {
+        const currentTags = item.suggested_tags || [];
+        const removedTag = currentTags[index];
+        let nextTags = currentTags.filter((_, i) => i !== index);
+        if (tagDerivedParents && removedTag) {
+          // Cascade upward: drop a derived parent too once none of its
+          // descendants remain selected, walking from nearest parent up.
+          getParentChain(availableTags, removedTag)
+            .slice()
+            .reverse()
+            .forEach((parent) => {
+              const stillHasDescendant = getDescendantNames(
+                availableTags,
+                parent.name
+              ).some((descendant) => includesTag(nextTags, descendant));
+              if (!stillHasDescendant) {
+                nextTags = nextTags.filter((t) => t !== parent.name);
+              }
+            });
+        }
+        return { ...item, suggested_tags: nextTags };
+      }),
     onCorrespondentChange: (docId, correspondent) =>
       updateItem(docId, (item) => ({
         ...item,
@@ -273,6 +308,9 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
             key={item.id}
             suggestion={item}
             availableTags={availableTags}
+            tagSelectionMode={tagSelectionMode}
+            tagDerivedParents={tagDerivedParents}
+            createNewTagsEnabled={createNewTagsEnabled}
             availableDocumentTypes={availableDocumentTypes}
             createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
             decision={decisions[item.id] || "pending"}
@@ -349,6 +387,9 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           decisions={decisions}
           excludedMap={excludedMap}
           availableTags={availableTags}
+          tagSelectionMode={tagSelectionMode}
+          tagDerivedParents={tagDerivedParents}
+          createNewTagsEnabled={createNewTagsEnabled}
           availableDocumentTypes={availableDocumentTypes}
           createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           handlers={handlers}

@@ -51,12 +51,24 @@ export interface DocumentSuggestion {
   suggested_created_date?: string;
   suggested_custom_fields?: CustomFieldSuggestion[];
   field_errors?: Record<string, string>;
+  keep_original_tags?: boolean;
+  remove_tags?: string[];
+  add_tags?: string[];
+  add_tag_parents?: Record<string, number>;
   custom_fields_write_mode?: string;
 }
 
 export interface TagOption {
   id: string;
   name: string;
+  parent_id?: number;
+  path?: string;
+  depth?: number;
+  has_children?: boolean;
+  is_applicable?: boolean;
+  is_workflow?: boolean;
+  is_system?: boolean;
+  is_derived?: boolean;
 }
 
 export interface DocumentTypeOption {
@@ -67,6 +79,13 @@ export interface DocumentTypeOption {
 interface DocumentTypesResponse {
   document_types: DocumentTypeOption[];
   create_new_document_types: boolean;
+}
+
+interface DetailedTagsResponse {
+  tags: TagOption[];
+  selection_mode: "all" | "applicable";
+  derived_parents: boolean;
+  create_new_tags: boolean;
 }
 
 export interface SuggestionJobFailedDocument {
@@ -95,6 +114,112 @@ interface CustomField {
 const ACTIVE_JOB_KEY = "pgpt-active-suggestion-job";
 const POLL_INTERVAL_MS = 1500;
 
+export const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
+
+export const includesTag = (tags: string[] | undefined, tag: string) =>
+  Boolean(tags?.some((candidate) => tagEquals(candidate, tag)));
+
+export const uniqueTags = (tags: string[]) =>
+  tags.reduce<string[]>((unique, tag) => {
+    const trimmedTag = tag.trim();
+    if (trimmedTag && !includesTag(unique, trimmedTag)) {
+      unique.push(trimmedTag);
+    }
+    return unique;
+  }, []);
+
+const findAvailableTag = (availableTags: TagOption[], tagName: string) =>
+  availableTags.find((tag) => tagEquals(tag.name, tagName));
+
+export const getParentChain = (availableTags: TagOption[], tagName: string) => {
+  const tagsById = new Map(availableTags.map((tag) => [Number(tag.id), tag]));
+  const tag = findAvailableTag(availableTags, tagName);
+  const parents: TagOption[] = [];
+  let parentId = tag?.parent_id;
+  const visited = new Set<number>();
+
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = tagsById.get(parentId);
+    if (!parent) break;
+    parents.unshift(parent);
+    parentId = parent.parent_id;
+  }
+
+  return parents;
+};
+
+export const getDescendantNames = (availableTags: TagOption[], tagName: string) => {
+  const tag = findAvailableTag(availableTags, tagName);
+  if (!tag) return [];
+  const descendants: string[] = [];
+  const walk = (parentId: number) => {
+    availableTags
+      .filter((candidate) => candidate.parent_id === parentId)
+      .forEach((child) => {
+        descendants.push(child.name);
+        walk(Number(child.id));
+      });
+  };
+  walk(Number(tag.id));
+  return descendants;
+};
+
+const addDerivedParentTags = (selectedTags: string[], removeTags: string[], availableTags: TagOption[], derivedParents: boolean) => {
+  if (!derivedParents) return uniqueTags(selectedTags);
+
+  const withParents = uniqueTags(selectedTags);
+  selectedTags.forEach((tagName) => {
+    getParentChain(availableTags, tagName).forEach((parent) => {
+      if (!includesTag(removeTags, parent.name) && !includesTag(withParents, parent.name)) {
+        withParents.push(parent.name);
+      }
+    });
+  });
+
+  return uniqueTags(withParents);
+};
+
+export const buildSelectedTags = (
+  originalTags: string[],
+  addTags: string[],
+  removeTags: string[],
+  availableTags: TagOption[] = [],
+  derivedParents = true
+) => {
+  const baseTags = uniqueTags([...originalTags, ...addTags]).filter((tag) => !includesTag(removeTags, tag));
+  return addDerivedParentTags(baseTags, removeTags, availableTags, derivedParents);
+};
+
+export const removeDerivedParentsWithoutChildren = (
+  removedTagName: string,
+  originalTags: string[],
+  addTags: string[],
+  removeTags: string[],
+  availableTags: TagOption[],
+  derivedParents: boolean
+) => {
+  if (!derivedParents) {
+    return { addTags, removeTags };
+  }
+
+  let nextAddTags = uniqueTags(addTags);
+  let nextRemoveTags = uniqueTags(removeTags);
+  for (const parent of getParentChain(availableTags, removedTagName)) {
+    const remainingBaseTags = uniqueTags([...originalTags, ...nextAddTags]).filter((tag) => !includesTag(nextRemoveTags, tag));
+    const selectedDescendant = getDescendantNames(availableTags, parent.name).some((descendant) => includesTag(remainingBaseTags, descendant));
+    if (selectedDescendant) continue;
+
+    nextAddTags = nextAddTags.filter((tag) => !tagEquals(tag, parent.name));
+    if (includesTag(originalTags, parent.name) && !includesTag(nextRemoveTags, parent.name)) {
+      nextRemoveTags = uniqueTags([...nextRemoveTags, parent.name]);
+    }
+  }
+
+  return { addTags: nextAddTags, removeTags: nextRemoveTags };
+};
+
+
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -102,6 +227,9 @@ const DocumentProcessor: React.FC = () => {
     null
   );
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
+  const [tagSelectionMode, setTagSelectionMode] = useState<"all" | "applicable">("all");
+  const [tagDerivedParents, setTagDerivedParents] = useState(true);
+  const [createNewTagsEnabled, setCreateNewTagsEnabled] = useState(false);
   const [availableDocumentTypes, setAvailableDocumentTypes] = useState<
     DocumentTypeOption[]
   >([]);
@@ -141,7 +269,7 @@ const DocumentProcessor: React.FC = () => {
         await Promise.all([
           axios.get<{ tag: string }>("./api/filter-tag"),
           axios.get<Document[]>("./api/documents"),
-          axios.get<Record<string, number>>("./api/tags"),
+          axios.get<DetailedTagsResponse>("./api/tags/detailed"),
           axios.get<DocumentTypesResponse>("./api/document_types"),
           axios.get<CustomField[]>("./api/custom_fields"),
         ]);
@@ -150,11 +278,12 @@ const DocumentProcessor: React.FC = () => {
       setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
       setSelectedIds(new Set(documentsRes.data.map((doc) => doc.id)));
-      const tags = Object.keys(tagsRes.data).map((tag) => ({
-        id: tag,
-        name: tag,
-      }));
-      setAvailableTags(tags);
+      setAvailableTags(
+        (tagsRes.data.tags || []).map((tag) => ({ ...tag, id: String(tag.id) }))
+      );
+      setTagSelectionMode(tagsRes.data.selection_mode || "all");
+      setTagDerivedParents(Boolean(tagsRes.data.derived_parents));
+      setCreateNewTagsEnabled(Boolean(tagsRes.data.create_new_tags));
       setAvailableDocumentTypes(documentTypesRes.data.document_types || []);
       setCreateNewDocumentTypesEnabled(
         Boolean(documentTypesRes.data.create_new_document_types)
@@ -182,21 +311,40 @@ const DocumentProcessor: React.FC = () => {
       const customFieldMap = new Map(
         (allCustomFields || []).map((cf) => [cf.id, cf.name])
       );
-      const processed = (finishedJob.result || []).map((suggestion) => ({
-        ...suggestion,
-        suggested_custom_fields: suggestion.suggested_custom_fields?.map(
-          (cf) => ({
-            ...cf,
-            name: customFieldMap.get(cf.id) || "Unknown Field",
-            isSelected: true,
-          })
-        ),
-      }));
+      const processed = (finishedJob.result || []).map((suggestion) => {
+        const originalTags = suggestion.original_document.tags || [];
+        const suggestedTags = suggestion.suggested_tags || [];
+        const addTags = uniqueTags(
+          suggestedTags.filter((tag) => !includesTag(originalTags, tag))
+        );
+        const removeTags = uniqueTags(suggestion.remove_tags || []);
+
+        return {
+          ...suggestion,
+          keep_original_tags: true,
+          add_tags: addTags,
+          remove_tags: removeTags,
+          suggested_tags: buildSelectedTags(
+            originalTags,
+            addTags,
+            removeTags,
+            availableTags,
+            tagDerivedParents
+          ),
+          suggested_custom_fields: suggestion.suggested_custom_fields?.map(
+            (cf) => ({
+              ...cf,
+              name: customFieldMap.get(cf.id) || "Unknown Field",
+              isSelected: true,
+            })
+          ),
+        };
+      });
 
       setFailedDocuments(finishedJob.failed_documents || []);
       setSuggestions((prev) => (prev ? [...prev, ...processed] : processed));
     },
-    [allCustomFields]
+    [allCustomFields, availableTags, tagDerivedParents]
   );
 
   // Resume a job after a reload: the job id survives in localStorage and the
@@ -448,6 +596,9 @@ const DocumentProcessor: React.FC = () => {
         <SuggestionsReview
           suggestions={suggestions}
           availableTags={availableTags}
+          tagSelectionMode={tagSelectionMode}
+          tagDerivedParents={tagDerivedParents}
+          createNewTagsEnabled={createNewTagsEnabled}
           availableDocumentTypes={availableDocumentTypes}
           createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           filterTag={filterTag}

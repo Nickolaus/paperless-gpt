@@ -27,6 +27,9 @@ interface FocusReviewProps {
   decisions: Record<number, Decision>;
   excludedMap: Record<number, Set<FieldKey>>;
   availableTags: TagOption[];
+  tagSelectionMode: "all" | "applicable";
+  tagDerivedParents: boolean;
+  createNewTagsEnabled: boolean;
   availableDocumentTypes: DocumentTypeOption[];
   createNewDocumentTypesEnabled: boolean;
   handlers: SuggestionEditHandlers;
@@ -57,6 +60,9 @@ const FocusReview: React.FC<FocusReviewProps> = ({
   decisions,
   excludedMap,
   availableTags,
+  tagSelectionMode,
+  tagDerivedParents,
+  createNewTagsEnabled,
   availableDocumentTypes,
   createNewDocumentTypesEnabled,
   handlers,
@@ -228,6 +234,9 @@ const FocusReview: React.FC<FocusReviewProps> = ({
               <SuggestionFields
                 suggestion={item}
                 availableTags={availableTags}
+                tagSelectionMode={tagSelectionMode}
+                tagDerivedParents={tagDerivedParents}
+                createNewTagsEnabled={createNewTagsEnabled}
                 availableDocumentTypes={availableDocumentTypes}
                 createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
                 excluded={excluded}

@@ -96,6 +96,9 @@ const inputClasses =
 interface SuggestionFieldsProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
+  tagSelectionMode: "all" | "applicable";
+  tagDerivedParents: boolean;
+  createNewTagsEnabled: boolean;
   availableDocumentTypes: DocumentTypeOption[];
   createNewDocumentTypesEnabled: boolean;
   excluded: Set<FieldKey>;
@@ -111,6 +114,8 @@ const tagEquals = (left: string, right: string) =>
 const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
   suggestion,
   availableTags,
+  tagSelectionMode,
+  createNewTagsEnabled,
   availableDocumentTypes,
   createNewDocumentTypesEnabled,
   excluded,
@@ -118,8 +123,11 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
   handlers,
   disabled,
 }) => {
-  const sortedAvailableTags = [...availableTags].sort((a, b) =>
-    a.name.localeCompare(b.name)
+  const selectableTags = availableTags.filter(
+    (tag) => tagSelectionMode !== "applicable" || tag.is_applicable
+  );
+  const sortedAvailableTags = [...selectableTags].sort((a, b) =>
+    (a.path || a.name).localeCompare(b.path || b.name)
   );
   const sortedAvailableDocumentTypes = [...availableDocumentTypes].sort(
     (a, b) => a.name.localeCompare(b.name)
@@ -180,17 +188,20 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
           suggestions={sortedAvailableTags.map((tag) => ({
             id: tag.id,
             name: tag.name,
-            label: tag.name,
+            label: tag.path || tag.name,
             value: tag.id,
           }))}
-          onAdd={(tag) =>
+          onAdd={(tag) => {
+            const matched = sortedAvailableTags.find(
+              (candidate) => candidate.id === String(tag.value)
+            );
             handlers.onTagAddition(suggestion.id, {
               id: String(tag.value ?? tag.label),
-              name: String(tag.label),
-            })
-          }
+              name: matched?.name || String(tag.label),
+            });
+          }}
           onDelete={(index) => handlers.onTagDeletion(suggestion.id, index)}
-          allowNew={true}
+          allowNew={createNewTagsEnabled}
           placeholderText="Add a tag"
           labelText="Suggested tags"
           isDisabled={disabled || excluded.has("tags")}

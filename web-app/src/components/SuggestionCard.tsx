@@ -21,6 +21,9 @@ import SuggestionFields from "./review/SuggestionFields";
 interface SuggestionCardProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
+  tagSelectionMode: "all" | "applicable";
+  tagDerivedParents: boolean;
+  createNewTagsEnabled: boolean;
   availableDocumentTypes: DocumentTypeOption[];
   createNewDocumentTypesEnabled: boolean;
   decision: Decision;
@@ -36,6 +39,9 @@ interface SuggestionCardProps {
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   availableTags,
+  tagSelectionMode,
+  tagDerivedParents,
+  createNewTagsEnabled,
   availableDocumentTypes,
   createNewDocumentTypesEnabled,
   decision,
@@ -106,6 +112,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
         <SuggestionFields
           suggestion={suggestion}
           availableTags={availableTags}
+          tagSelectionMode={tagSelectionMode}
+          tagDerivedParents={tagDerivedParents}
+          createNewTagsEnabled={createNewTagsEnabled}
           availableDocumentTypes={availableDocumentTypes}
           createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           excluded={excluded}
