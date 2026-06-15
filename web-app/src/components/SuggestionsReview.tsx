@@ -5,6 +5,9 @@ import SuggestionCard from "./SuggestionCard";
 interface SuggestionsReviewProps {
   suggestions: DocumentSuggestion[];
   availableTags: TagOption[];
+  tagSelectionMode: "all" | "applicable";
+  tagDerivedParents: boolean;
+  createNewTagsEnabled: boolean;
   availableDocumentTypes: DocumentTypeOption[];
   createNewDocumentTypesEnabled: boolean;
   onTitleChange: (docId: number, title: string) => void;
@@ -24,6 +27,9 @@ interface SuggestionsReviewProps {
 const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   suggestions,
   availableTags,
+  tagSelectionMode,
+  tagDerivedParents,
+  createNewTagsEnabled,
   availableDocumentTypes,
   createNewDocumentTypesEnabled,
   onTitleChange,
@@ -49,6 +55,9 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           key={doc.id}
           suggestion={doc}
           availableTags={availableTags}
+          tagSelectionMode={tagSelectionMode}
+          tagDerivedParents={tagDerivedParents}
+          createNewTagsEnabled={createNewTagsEnabled}
           availableDocumentTypes={availableDocumentTypes}
           createNewDocumentTypesEnabled={createNewDocumentTypesEnabled}
           onTitleChange={onTitleChange}

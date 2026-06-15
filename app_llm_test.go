@@ -706,6 +706,9 @@ func (m *mockPaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]Docume
 func (m *mockPaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
 	return 0, nil
 }
+func (m *mockPaperlessClient) CreateTagWithParent(ctx context.Context, tagName string, parentID *int) (int, error) {
+	return m.CreateTag(ctx, tagName)
+}
 func (m *mockPaperlessClient) CreateOrGetDocumentType(ctx context.Context, documentType DocumentType) (int, error) {
 	return 0, nil
 }

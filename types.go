@@ -127,6 +127,7 @@ type DocumentSuggestion struct {
 	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
 	RemoveTags             []string                `json:"remove_tags,omitempty"`
 	AddTags                []string                `json:"add_tags,omitempty"`
+	AddTagParents          map[string]int          `json:"add_tag_parents,omitempty"`
 	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
 	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 }
@@ -170,6 +171,7 @@ type ClientInterface interface {
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)
 	CreateTag(ctx context.Context, tagName string) (int, error)
+	CreateTagWithParent(ctx context.Context, tagName string, parentID *int) (int, error)
 	CreateOrGetDocumentType(ctx context.Context, documentType DocumentType) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)

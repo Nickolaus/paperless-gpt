@@ -401,6 +401,7 @@ func main() {
 		})
 		// Get all tags
 		api.GET("/tags", app.getAllTagsHandler)
+		api.GET("/tags/detailed", app.getDetailedTagsHandler)
 		api.GET("/document_types", app.getAllDocumentTypesHandler)
 		api.GET("/custom_fields", app.getCustomFieldsHandler)
 		api.GET("/prompts", getPromptsHandler)

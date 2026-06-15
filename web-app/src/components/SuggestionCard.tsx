@@ -5,6 +5,9 @@ import { DocumentSuggestion, DocumentTypeOption, TagOption } from "../DocumentPr
 interface SuggestionCardProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
+  tagSelectionMode: "all" | "applicable";
+  tagDerivedParents: boolean;
+  createNewTagsEnabled: boolean;
   availableDocumentTypes: DocumentTypeOption[];
   createNewDocumentTypesEnabled: boolean;
   onTitleChange: (docId: number, title: string) => void;
@@ -21,6 +24,9 @@ interface SuggestionCardProps {
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   availableTags,
+  tagSelectionMode,
+  tagDerivedParents,
+  createNewTagsEnabled,
   availableDocumentTypes,
   createNewDocumentTypesEnabled,
   onTitleChange,
@@ -34,19 +40,44 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onCustomFieldSuggestionValueChange,
 }) => {
   const [isCreatingDocumentType, setIsCreatingDocumentType] = React.useState(false);
-  const sortedAvailableTags = [...availableTags].sort((a, b) => a.name.localeCompare(b.name));
+  const [newTagParentId, setNewTagParentId] = React.useState("");
+  const sortedAvailableTags = [...availableTags].sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name));
+  const selectableTags = sortedAvailableTags.filter((tag) => tagSelectionMode !== "applicable" || tag.is_applicable);
+  const parentTagOptions = sortedAvailableTags.filter((tag) => !tag.is_workflow && !tag.is_system && (tag.has_children || tag.depth === 0));
   const sortedAvailableDocumentTypes = [...availableDocumentTypes].sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
   const originalValue = (value?: string) => value?.trim() || "Empty";
   const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
   const includesTag = (tags: string[], tag: string) => tags.some((candidate) => tagEquals(candidate, tag));
   const availableTagNames = availableTags.map((tag) => tag.name);
+  const tagByName = new Map(availableTags.map((tag) => [tag.name.toLocaleLowerCase(), tag]));
+  const tagById = new Map(availableTags.map((tag) => [String(tag.id), tag]));
   const originalCustomFields = new Map((document.custom_fields || []).map((field) => [field.field, field]));
   const selectedTags = suggestion.suggested_tags || [];
   const originalTags = document.tags || [];
-  const keptTags = originalTags.filter((tag) => includesTag(selectedTags, tag));
+  const descendantNames = (tag: TagOption) => {
+    const descendants: string[] = [];
+    const walk = (parentId: string) => {
+      availableTags
+        .filter((candidate) => String(candidate.parent_id) === parentId)
+        .forEach((child) => {
+          descendants.push(child.name);
+          walk(String(child.id));
+        });
+    };
+    walk(String(tag.id));
+    return descendants;
+  };
+  const isDerivedParentTag = (tagName: string) => {
+    if (!tagDerivedParents) return false;
+    const tag = tagByName.get(tagName.toLocaleLowerCase());
+    if (!tag?.has_children) return false;
+    return descendantNames(tag).some((descendant) => includesTag(selectedTags, descendant));
+  };
+  const derivedParentTags = selectedTags.filter((tag) => isDerivedParentTag(tag));
+  const keptTags = originalTags.filter((tag) => includesTag(selectedTags, tag) && !isDerivedParentTag(tag));
   const removedTags = (suggestion.remove_tags || []).filter((tag) => includesTag(originalTags, tag) && !includesTag(selectedTags, tag));
-  const addedTags = selectedTags.filter((tag) => !includesTag(originalTags, tag));
+  const addedTags = selectedTags.filter((tag) => !includesTag(originalTags, tag) && !isDerivedParentTag(tag));
   const suggestedExistingTags = addedTags.filter((tag) => includesTag(availableTagNames, tag));
   const newTags = addedTags.filter((tag) => !includesTag(availableTagNames, tag));
   const suggestedDocumentType = suggestion.suggested_document_type?.trim() || "";
@@ -119,7 +150,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               : document.content}
           </p>
           <div className="mt-4">
-            {document.tags.map((tag) => (
+            {document.tags.filter((tag) => tag.trim()).map((tag) => (
               <span
                 key={tag}
                 className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full"
@@ -208,6 +239,14 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               )}
             </div>
             <div>
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">Included by hierarchy</h4>
+              {renderTagList(
+                derivedParentTags,
+                "No parent tags are included by hierarchy.",
+                "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-100"
+              )}
+            </div>
+            <div>
               <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">Removed tags</h4>
               {renderTagList(
                 removedTags,
@@ -223,41 +262,66 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           </div>
           <div className="mt-3">
             <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Add another tag</span>
-          <ReactTags
-            selected={[]}
-            suggestions={sortedAvailableTags.map((tag) => ({
-              id: tag.id,
-              name: tag.name,
-              label: tag.name,
-              value: tag.id,
-            }))}
-            onAdd={(tag) =>
-              onTagAddition(suggestion.id, {
-                id: String(tag.label),
-                name: String(tag.label),
-              })
-            }
-            onDelete={() => undefined}
-            allowNew={true}
-            placeholderText="Add a tag"
-            classNames={{
-              root: "react-tags dark:bg-gray-800",
-              rootIsActive: "is-active",
-              rootIsDisabled: "is-disabled",
-              rootIsInvalid: "is-invalid",
-              label: "react-tags__label",
-              tagList: "react-tags__list",
-              tagListItem: "react-tags__list-item",
-              tag: "react-tags__tag dark:bg-blue-900 dark:text-blue-200",
-              tagName: "react-tags__tag-name",
-              comboBox: "react-tags__combobox dark:bg-gray-700 dark:text-gray-200",
-              input: "react-tags__combobox-input dark:bg-gray-700 dark:text-gray-200",
-              listBox: "react-tags__listbox dark:bg-gray-700 dark:text-gray-200",
-              option: "react-tags__listbox-option dark:bg-gray-700 dark:text-gray-200 hover:bg-blue-500 dark:hover:bg-blue-800",
-              optionIsActive: "is-active",
-              highlight: "react-tags__highlight dark:bg-gray-800",
-            }}
-          />
+            {createNewTagsEnabled && tagSelectionMode === "applicable" && (
+              <label className="mb-2 block text-xs text-gray-600 dark:text-gray-300">
+                Parent for new tags
+                <select
+                  value={newTagParentId}
+                  onChange={(event) => setNewTagParentId(event.target.value)}
+                  className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                >
+                  <option value="">Select a parent before creating a new tag</option>
+                  {parentTagOptions.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.path || tag.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <ReactTags
+              selected={[]}
+              suggestions={selectableTags.map((tag) => ({
+                id: tag.id,
+                name: tag.name,
+                label: tag.path || tag.name,
+                value: tag.id,
+              }))}
+              onAdd={(tag) => {
+                const existingTag = tagById.get(String(tag.value)) || tagByName.get(String(tag.label).toLocaleLowerCase());
+                const tagName = existingTag?.name || String(tag.label);
+                const parentId = existingTag?.parent_id || (newTagParentId ? Number(newTagParentId) : undefined);
+                if (!existingTag && tagSelectionMode === "applicable" && !parentId) {
+                  return;
+                }
+                onTagAddition(suggestion.id, {
+                  id: existingTag?.id || tagName,
+                  name: tagName,
+                  parent_id: parentId,
+                  path: existingTag?.path || tagName,
+                });
+              }}
+              onDelete={() => undefined}
+              allowNew={createNewTagsEnabled && (tagSelectionMode !== "applicable" || Boolean(newTagParentId))}
+              placeholderText="Add a tag"
+              classNames={{
+                root: "react-tags dark:bg-gray-800",
+                rootIsActive: "is-active",
+                rootIsDisabled: "is-disabled",
+                rootIsInvalid: "is-invalid",
+                label: "react-tags__label",
+                tagList: "react-tags__list",
+                tagListItem: "react-tags__list-item",
+                tag: "react-tags__tag dark:bg-blue-900 dark:text-blue-200",
+                tagName: "react-tags__tag-name",
+                comboBox: "react-tags__combobox dark:bg-gray-700 dark:text-gray-200",
+                input: "react-tags__combobox-input dark:bg-gray-700 dark:text-gray-200",
+                listBox: "react-tags__listbox dark:bg-gray-700 dark:text-gray-200",
+                option: "react-tags__listbox-option dark:bg-gray-700 dark:text-gray-200 hover:bg-blue-500 dark:hover:bg-blue-800",
+                optionIsActive: "is-active",
+                highlight: "react-tags__highlight dark:bg-gray-800",
+              }}
+            />
           </div>
         </div>
         <div className="mt-4">

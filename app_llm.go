@@ -79,11 +79,10 @@ func cleanLLMScalar(value string) string {
 }
 
 func filterSuggestedTags(suggestedTags []string, originalTags []string, availableTags []string, allowNewTags bool) []string {
-	allTags := append([]string{}, suggestedTags...)
-	allTags = append(allTags, originalTags...)
-
 	filteredTags := []string{}
-	for _, tag := range allTags {
+	originalTagNames := tagNameSet(originalTags)
+
+	for _, tag := range suggestedTags {
 		tag = cleanLLMScalar(tag)
 		if tag == "" {
 			continue
@@ -98,6 +97,12 @@ func filterSuggestedTags(suggestedTags []string, originalTags []string, availabl
 			}
 		}
 		if !matched && allowNewTags {
+			filteredTags = append(filteredTags, tag)
+		}
+	}
+	for _, tag := range originalTags {
+		tag = cleanLLMScalar(tag)
+		if tag != "" && originalTagNames[strings.ToLower(tag)] {
 			filteredTags = append(filteredTags, tag)
 		}
 	}
@@ -695,11 +700,19 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 
 		generationContext.availableTagNames = make([]string, 0, len(availableTags))
 		filteredTags := make([]Tag, 0, len(availableTags))
+		detailedTags := buildDetailedTags(availableTags, currentTagSelectionMode(), configuredNonClassificationTagNames())
+		availableByID := make(map[int]DetailedTag, len(detailedTags))
+		for _, tag := range detailedTags {
+			availableByID[tag.ID] = tag
+		}
 		for _, tag := range availableTags {
-			if tag.Name == manualTag {
+			detailedTag, exists := availableByID[tag.ID]
+			if !exists || detailedTag.IsWorkflow || detailedTag.IsSystem {
 				continue
 			}
-			generationContext.availableTagNames = append(generationContext.availableTagNames, tag.Name)
+			if detailedTag.IsApplicable {
+				generationContext.availableTagNames = append(generationContext.availableTagNames, tag.Name)
+			}
 			filteredTags = append(filteredTags, tag)
 		}
 		slices.Sort(generationContext.availableTagNames)

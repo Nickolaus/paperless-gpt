@@ -587,10 +587,17 @@ func (client *PaperlessClient) GetDocumentTagNames(ctx context.Context, document
 
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
-	availableTags, err := client.GetAllTags(ctx)
+	detailedTagsSource, err := client.GetAllTagsDetailed(ctx)
 	if err != nil {
 		return fmt.Errorf("error fetching available tags: %w", err)
 	}
+	availableTags := make(map[string]int, len(detailedTagsSource))
+	for _, tag := range detailedTagsSource {
+		if strings.TrimSpace(tag.Name) != "" {
+			availableTags[tag.Name] = tag.ID
+		}
+	}
+	detailedTags := buildDetailedTags(detailedTagsSource, currentTagSelectionMode(), configuredNonClassificationTagNames())
 
 	availableCorrespondents, err := client.GetAllCorrespondents(ctx)
 	if err != nil {
@@ -615,7 +622,13 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 
 		// --- TAGS ---
 		if hasExplicitTagChange(document) {
-			finalTagNames := resolveFinalTagNames(document)
+			finalTagNames := normalizeTagNamesForApply(
+				resolveFinalTagNames(document),
+				document.RemoveTags,
+				detailedTags,
+				document.AddTagParents,
+				currentTagDerivedParents(),
+			)
 
 			log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
 
@@ -635,7 +648,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 						finalTagIDs = append(finalTagIDs, tagID)
 					} else if createNewTags {
 						// Create the new tag in paperless-ngx
-						newTagID, err := client.CreateTag(ctx, tagName)
+						newTagID, err := client.CreateTagWithParent(ctx, tagName, lookupTagParentID(document.AddTagParents, tagName))
 						if err != nil {
 							log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
 							continue
@@ -1568,13 +1581,34 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 	return result, nil
 }
 
+func lookupTagParentID(addTagParents map[string]int, tagName string) *int {
+	if len(addTagParents) == 0 {
+		return nil
+	}
+	if parentID, exists := addTagParents[tagName]; exists && parentID > 0 {
+		return &parentID
+	}
+	for candidate, parentID := range addTagParents {
+		if strings.EqualFold(candidate, tagName) && parentID > 0 {
+			return &parentID
+		}
+	}
+	return nil
+}
+
 // CreateTag creates a new tag and returns its ID
 func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+	return client.CreateTagWithParent(ctx, tagName, nil)
+}
+
+// CreateTagWithParent creates a new tag and optionally assigns a parent tag.
+func (client *PaperlessClient) CreateTagWithParent(ctx context.Context, tagName string, parentID *int) (int, error) {
 	type tagRequest struct {
-		Name string `json:"name"`
+		Name   string `json:"name"`
+		Parent *int   `json:"parent,omitempty"`
 	}
 
-	requestBody, err := json.Marshal(tagRequest{Name: tagName})
+	requestBody, err := json.Marshal(tagRequest{Name: tagName, Parent: parentID})
 	if err != nil {
 		return 0, fmt.Errorf("error marshaling tag request: %w", err)
 	}

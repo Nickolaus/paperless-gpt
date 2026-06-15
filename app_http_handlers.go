@@ -107,6 +107,27 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tags)
 }
 
+// getDetailedTagsHandler handles the GET /api/tags/detailed endpoint.
+func (app *App) getDetailedTagsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	tags, err := app.Client.GetAllTagsDetailed(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching detailed tags: %v", err)})
+		log.Errorf("Error fetching detailed tags: %v", err)
+		return
+	}
+
+	selectionMode := currentTagSelectionMode()
+	detailedTags := buildDetailedTags(tags, selectionMode, configuredNonClassificationTagNames())
+	c.JSON(http.StatusOK, DetailedTagsResponse{
+		Tags:           detailedTags,
+		SelectionMode:  selectionMode,
+		DerivedParents: currentTagDerivedParents(),
+		CreateNewTags:  createNewTags,
+	})
+}
+
 func (app *App) getAllDocumentTypesHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 
