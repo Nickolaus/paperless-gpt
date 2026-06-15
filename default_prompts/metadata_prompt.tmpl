@@ -27,9 +27,11 @@ Rules:
 - For tags, prefer available tags. Suggest new tags only if highly relevant and no available tag fits.
   Available tag parents are structure buckets, not normal classification tags. If a parent bucket fits, prefer a specific child tag.
   When suggesting a new child tag, return it as "Existing Parent / New Child" using one of the available tag parents.
+  Original tags are context, not the classification target. Do not let existing tags hide the document's primary subject.
   Do not invent new parent tags and do not change existing parent relationships.
 - For correspondent, prefer an exact or normalized match from the available correspondents. Never return a blacklisted correspondent.
 - For document_type, prefer an available document type. Suggest a new document type only if none of the available document types fit.
+  Use a reusable compound noun when a generic type would be too vague.
 - For created_date, return YYYY-MM-DD. If no date was found, use today's date: {{.Today}}.
 
 {{- if .GenerateTags}}

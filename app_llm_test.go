@@ -518,14 +518,24 @@ func TestCreateNewDocumentTypesFiltering(t *testing.T) {
 		assert.Equal(t, "Bescheid", documentType)
 	})
 
-	t.Run("createNewDocumentTypes rejects narrow list-like document type", func(t *testing.T) {
+	t.Run("createNewDocumentTypes rejects generic list-like document type", func(t *testing.T) {
 		createNewDocumentTypes = true
-		mockLLM := &mockLLM{Response: "Vertragsliste"}
+		mockLLM := &mockLLM{Response: "Übersicht"}
 		app := &App{LLM: mockLLM}
 
 		documentType, err := app.getSuggestedDocumentType(ctx, "Some document content", "Unknown document", availableDocumentTypes, testLogger)
 		require.NoError(t, err)
 		assert.Empty(t, documentType)
+	})
+
+	t.Run("createNewDocumentTypes allows compound reusable document type", func(t *testing.T) {
+		createNewDocumentTypes = true
+		mockLLM := &mockLLM{Response: "Versicherungsübersicht"}
+		app := &App{LLM: mockLLM}
+
+		documentType, err := app.getSuggestedDocumentType(ctx, "Some document content", "Unknown document", availableDocumentTypes, testLogger)
+		require.NoError(t, err)
+		assert.Equal(t, "Versicherungsübersicht", documentType)
 	})
 }
 

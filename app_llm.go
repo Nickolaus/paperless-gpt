@@ -206,6 +206,9 @@ func validateSuggestedCorrespondent(suggestion string, availableCorrespondents [
 
 func isLikelyNarrowDocumentType(suggestion string) bool {
 	normalized := strings.ToLower(cleanLLMScalar(suggestion))
+	tokens := strings.FieldsFunc(normalized, func(r rune) bool {
+		return r == ' ' || r == '-' || r == '_' || r == '/' || r == ':' || r == ';' || r == ',' || r == '.'
+	})
 	narrowTerms := []string{
 		"liste",
 		"übersicht",
@@ -217,8 +220,13 @@ func isLikelyNarrowDocumentType(suggestion string) bool {
 		"list",
 	}
 	for _, term := range narrowTerms {
-		if strings.Contains(normalized, term) {
+		if normalized == term {
 			return true
+		}
+		for _, token := range tokens {
+			if token == term {
+				return true
+			}
 		}
 	}
 	return false
