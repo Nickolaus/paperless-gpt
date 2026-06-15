@@ -45,11 +45,11 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onUpdate,
   updating,
 }) => (
-  <section className="suggestions-review max-w-4xl">
+  <section className="suggestions-review w-full max-w-4xl">
     <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200 mb-6">
       Review suggested changes
     </h2>
-    <div className="grid grid-cols-1 gap-4">
+    <div className="grid w-full grid-cols-1 gap-4">
       {suggestions.map((doc) => (
         <SuggestionCard
           key={doc.id}
