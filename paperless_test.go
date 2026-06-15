@@ -109,6 +109,47 @@ func TestPaperlessClientAddsConfiguredAPIVersionHeader(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCreatedTagRequestPayloadDefaultsToNameAndParentOnly(t *testing.T) {
+	parentID := 42
+	payload, err := createdTagRequestPayload("Kfz-Versicherung", &parentID)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]interface{}{
+		"name":   "Kfz-Versicherung",
+		"parent": 42,
+	}, payload)
+}
+
+func TestCreatedTagRequestPayloadCanSetOwnerAndPermissions(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_TAG_OWNER_ID", "null")
+	t.Setenv("PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS", "1, 2,3")
+	t.Setenv("PAPERLESS_CREATED_TAG_CHANGE_GROUP_IDS", "1,2,3")
+
+	payload, err := createdTagRequestPayload("Kfz-Versicherung", nil)
+	require.NoError(t, err)
+
+	assert.Contains(t, payload, "owner")
+	assert.Nil(t, payload["owner"])
+	assert.Equal(t, map[string]interface{}{
+		"view": map[string]interface{}{
+			"users":  []int{},
+			"groups": []int{1, 2, 3},
+		},
+		"change": map[string]interface{}{
+			"users":  []int{},
+			"groups": []int{1, 2, 3},
+		},
+	}, payload["set_permissions"])
+}
+
+func TestCreatedTagRequestPayloadRejectsInvalidPermissionConfig(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS", "1,bad")
+
+	_, err := createdTagRequestPayload("Kfz-Versicherung", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS")
+}
+
 // teardown closes the mock server
 func (env *testEnv) teardown() {
 	env.server.Close()

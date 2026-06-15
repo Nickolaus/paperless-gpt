@@ -1638,14 +1638,87 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 	return client.CreateTagWithParent(ctx, tagName, nil)
 }
 
-// CreateTagWithParent creates a new tag and optionally assigns a parent tag.
-func (client *PaperlessClient) CreateTagWithParent(ctx context.Context, tagName string, parentID *int) (int, error) {
-	type tagRequest struct {
-		Name   string `json:"name"`
-		Parent *int   `json:"parent,omitempty"`
+func parseOptionalObjectOwner(value string) (interface{}, bool, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, false, nil
+	}
+	if strings.EqualFold(trimmed, "null") {
+		return nil, true, nil
+	}
+	ownerID, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid PAPERLESS_CREATED_TAG_OWNER_ID %q: %w", value, err)
+	}
+	return ownerID, true, nil
+}
+
+func parseOptionalIntListEnv(name string) ([]int, bool, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return nil, false, nil
+	}
+	parts := strings.Split(value, ",")
+	ids := make([]int, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		id, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid %s value %q: %w", name, trimmed, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, true, nil
+}
+
+func createdTagRequestPayload(tagName string, parentID *int) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
+		"name": tagName,
+	}
+	if parentID != nil {
+		payload["parent"] = *parentID
 	}
 
-	requestBody, err := json.Marshal(tagRequest{Name: tagName, Parent: parentID})
+	if owner, configured, err := parseOptionalObjectOwner(os.Getenv("PAPERLESS_CREATED_TAG_OWNER_ID")); err != nil {
+		return nil, err
+	} else if configured {
+		payload["owner"] = owner
+	}
+
+	viewGroups, viewGroupsConfigured, err := parseOptionalIntListEnv("PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS")
+	if err != nil {
+		return nil, err
+	}
+	changeGroups, changeGroupsConfigured, err := parseOptionalIntListEnv("PAPERLESS_CREATED_TAG_CHANGE_GROUP_IDS")
+	if err != nil {
+		return nil, err
+	}
+	if viewGroupsConfigured || changeGroupsConfigured {
+		payload["set_permissions"] = map[string]interface{}{
+			"view": map[string]interface{}{
+				"users":  []int{},
+				"groups": viewGroups,
+			},
+			"change": map[string]interface{}{
+				"users":  []int{},
+				"groups": changeGroups,
+			},
+		}
+	}
+
+	return payload, nil
+}
+
+// CreateTagWithParent creates a new tag and optionally assigns a parent tag.
+func (client *PaperlessClient) CreateTagWithParent(ctx context.Context, tagName string, parentID *int) (int, error) {
+	payload, err := createdTagRequestPayload(tagName, parentID)
+	if err != nil {
+		return 0, err
+	}
+	requestBody, err := json.Marshal(payload)
 	if err != nil {
 		return 0, fmt.Errorf("error marshaling tag request: %w", err)
 	}
