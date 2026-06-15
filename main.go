@@ -831,8 +831,20 @@ func getLikelyLanguage() string {
 	return strings.Title(strings.ToLower(likelyLanguage))
 }
 
-var legacyDefaultPrompts = map[string]string{
-	"title_prompt.tmpl": `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
+var legacyDefaultPrompts = map[string][]string{
+	"title_prompt.tmpl": {
+		`I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
+Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
+Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+
+The data will be provided using an XML-like format for clarity:
+
+<original_title>{{.Title}}</original_title>
+<content>
+{{.Content}}
+</content>`,
+		`I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
 Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
 If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
 Use a concise and consistent naming style. Follow this title schema when the information is clear:
@@ -862,7 +874,31 @@ The data will be provided using an XML-like format for clarity:
 <content>
 {{.Content}}
 </content>`,
-	"document_type_prompt.tmpl": `I will provide you with the content and the title of a document.
+	},
+	"document_type_prompt.tmpl": {
+		`I will provide you with the content and the title of a document.
+Your task is to select the most appropriate document type for the document from the list of available document types I will provide.
+Only select a document type from the provided list. Respond only with the selected document type name, without any additional information.
+If none of the available document types fit the document, respond with an empty string.
+The content is likely in {{.Language}}.
+
+The data will be provided using an XML-like format for clarity:
+
+<available_document_types>
+{{.AvailableDocumentTypes | join ", "}}
+</available_document_types>
+
+<title>
+{{.Title}}
+</title>
+
+<content>
+{{.Content}}
+</content>
+
+Please select the single most appropriate {{.Language}} document type from the list above that best categorizes this document.
+Be selective and only choose a document type if it clearly matches the document's nature (e.g., Invoice, Contract, Receipt, Letter, etc.).`,
+		`I will provide you with the content and the title of a document.
 Your task is to select the most appropriate document type for the document from the list of available document types I will provide.
 {{- if .CreateNewDocumentTypes}}
 Prefer document types from the provided list. You may suggest a new document type only if none of the provided document types fit clearly.
@@ -894,6 +930,7 @@ The data will be provided using an XML-like format for clarity:
 Please select the single most appropriate {{.Language}} document type from the list above that best categorizes this document.
 If the title or content contains the exact name of one available document type, choose that exact available document type.
 Be selective and only choose a document type if it clearly matches the document's nature (e.g., Invoice, Contract, Receipt, Letter, etc.).`,
+	},
 }
 
 // loadTemplates loads templates from files, copying from defaults if they don't exist
@@ -928,12 +965,12 @@ func loadTemplates() error {
 			if err := os.WriteFile(promptPath, defaultContent, 0644); err != nil {
 				return nil, fmt.Errorf("failed to write prompt '%s': %w", name, err)
 			}
-		} else if legacyDefault, ok := legacyDefaultPrompts[name]; ok {
+		} else if legacyDefaults, ok := legacyDefaultPrompts[name]; ok {
 			promptContent, err := os.ReadFile(promptPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read prompt '%s': %w", name, err)
 			}
-			if strings.TrimSpace(string(promptContent)) == strings.TrimSpace(legacyDefault) {
+			if isLegacyDefaultPrompt(string(promptContent), legacyDefaults) {
 				defaultContent, err := os.ReadFile(defaultPromptPath)
 				if err != nil {
 					return nil, fmt.Errorf("failed to read default prompt '%s': %w", name, err)
@@ -994,6 +1031,16 @@ func loadTemplates() error {
 		return err
 	}
 	return nil
+}
+
+func isLegacyDefaultPrompt(promptContent string, legacyDefaults []string) bool {
+	normalizedPrompt := strings.TrimSpace(promptContent)
+	for _, legacyDefault := range legacyDefaults {
+		if normalizedPrompt == strings.TrimSpace(legacyDefault) {
+			return true
+		}
+	}
+	return false
 }
 
 // getRateLimitConfig gets rate limiting configuration from environment variables
