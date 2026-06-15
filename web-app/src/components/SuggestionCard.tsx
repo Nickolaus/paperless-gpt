@@ -175,8 +175,8 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   return (
     <div className="bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
       <div className="flex items-center group relative">
-        <div className="relative">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+        <div className="relative min-w-0">
+          <h3 className="text-lg font-semibold break-all sm:break-words text-gray-800 dark:text-gray-200">
             {document.title}
           </h3>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 truncate">

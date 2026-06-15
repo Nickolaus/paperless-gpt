@@ -1213,8 +1213,8 @@ const DocumentProcessor: React.FC = () => {
         </p>
       </header>
 
-      <nav aria-label="Workflow progress" className="mb-6">
-        <ol className="grid gap-2 sm:grid-cols-4">
+      <nav aria-label="Workflow progress" className="mb-6 max-w-4xl">
+        <ol className="grid grid-cols-1 gap-2 sm:grid-flow-col sm:auto-cols-fr">
           {workflowStepItems.map((step, index) => {
             const isCurrent = activeStep === step.id;
             return (
