@@ -1,0 +1,65 @@
+I will provide you with the content of a document that has been partially read by OCR, so it may contain errors.
+Your task is to suggest Paperless-ngx metadata in one JSON object.
+
+Return valid JSON only. Do not wrap it in Markdown.
+
+The JSON object must use these keys:
+{
+  "title": "",
+  "tags": [],
+  "correspondent": "",
+  "document_type": "",
+  "created_date": ""
+}
+
+Only fill keys requested below. For keys that are not requested or cannot be inferred, return an empty string or empty array.
+
+Requested fields:
+- title: {{.GenerateTitles}}
+- tags: {{.GenerateTags}}
+- correspondent: {{.GenerateCorrespondents}}
+- document_type: {{.GenerateDocumentTypes}}
+- created_date: {{.GenerateCreatedDate}}
+
+Rules:
+- The content is likely in {{.Language}}.
+- For title, follow this schema when the information is clear: {{.TitleSchema}}
+- For tags, prefer available tags. Suggest new tags only if highly relevant and no available tag fits.
+- For correspondent, prefer an exact or normalized match from the available correspondents. Never return a blacklisted correspondent.
+- For document_type, prefer an available document type. Suggest a new document type only if none of the available document types fit.
+- For created_date, return YYYY-MM-DD. If no date was found, use today's date: {{.Today}}.
+
+{{- if .GenerateTags}}
+<available_tags>
+{{.AvailableTags | join ", "}}
+</available_tags>
+{{- if .AvailableTagContext}}
+<available_tag_taxonomy>
+{{.AvailableTagContext}}
+</available_tag_taxonomy>
+{{- end}}
+<original_tags>
+{{.OriginalTags | join ", "}}
+</original_tags>
+{{- end}}
+
+{{- if .GenerateCorrespondents}}
+<available_correspondents>
+{{.AvailableCorrespondents | join ", "}}
+</available_correspondents>
+<blacklisted_correspondents>
+{{.BlackList | join ", "}}
+</blacklisted_correspondents>
+{{- end}}
+
+{{- if .GenerateDocumentTypes}}
+<available_document_types>
+{{.AvailableDocumentTypeContext}}
+</available_document_types>
+{{- end}}
+
+<original_title>{{.Title}}</original_title>
+
+<content>
+{{.Content}}
+</content>
