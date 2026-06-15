@@ -43,12 +43,19 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   const [newTagParentId, setNewTagParentId] = React.useState("");
   const sortedAvailableTags = [...availableTags].sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name));
   const selectableTags = sortedAvailableTags.filter((tag) => tagSelectionMode !== "applicable" || tag.is_applicable);
-  const parentTagOptions = sortedAvailableTags.filter((tag) => !tag.is_workflow && !tag.is_system && (tag.has_children || tag.depth === 0));
+  const parentTagOptions = sortedAvailableTags.filter((tag) => tag.is_parent_candidate);
   const sortedAvailableDocumentTypes = [...availableDocumentTypes].sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
   const originalValue = (value?: string) => value?.trim() || "Empty";
   const tagEquals = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
   const includesTag = (tags: string[], tag: string) => tags.some((candidate) => tagEquals(candidate, tag));
+  const uniqueTagNames = (tags: string[]) =>
+    tags.reduce<string[]>((unique, tag) => {
+      if (tag.trim() && !includesTag(unique, tag)) {
+        unique.push(tag);
+      }
+      return unique;
+    }, []);
   const availableTagNames = availableTags.map((tag) => tag.name);
   const tagByName = new Map(availableTags.map((tag) => [tag.name.toLocaleLowerCase(), tag]));
   const tagById = new Map(availableTags.map((tag) => [String(tag.id), tag]));
@@ -68,13 +75,35 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
     walk(String(tag.id));
     return descendants;
   };
+  const parentChain = (tag: TagOption) => {
+    const parents: TagOption[] = [];
+    let parentId = tag.parent_id;
+    const visited = new Set<number>();
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = tagById.get(String(parentId));
+      if (!parent) break;
+      parents.unshift(parent);
+      parentId = parent.parent_id;
+    }
+    return parents;
+  };
+  const pendingDerivedParentTags = uniqueTagNames(
+    Object.entries(suggestion.add_tag_parents || {}).flatMap(([tagName, parentId]) => {
+      if (!includesTag(selectedTags, tagName)) return [];
+      const parent = tagById.get(String(parentId));
+      if (!parent) return [];
+      return [...parentChain(parent).map((tag) => tag.name), parent.name];
+    })
+  );
   const isDerivedParentTag = (tagName: string) => {
     if (!tagDerivedParents) return false;
+    if (includesTag(pendingDerivedParentTags, tagName)) return true;
     const tag = tagByName.get(tagName.toLocaleLowerCase());
     if (!tag?.has_children) return false;
     return descendantNames(tag).some((descendant) => includesTag(selectedTags, descendant));
   };
-  const derivedParentTags = selectedTags.filter((tag) => isDerivedParentTag(tag));
+  const derivedParentTags = uniqueTagNames([...selectedTags.filter((tag) => isDerivedParentTag(tag)), ...pendingDerivedParentTags]);
   const keptTags = originalTags.filter((tag) => includesTag(selectedTags, tag) && !isDerivedParentTag(tag));
   const removedTags = (suggestion.remove_tags || []).filter((tag) => includesTag(originalTags, tag) && !includesTag(selectedTags, tag));
   const addedTags = selectedTags.filter((tag) => !includesTag(originalTags, tag) && !isDerivedParentTag(tag));

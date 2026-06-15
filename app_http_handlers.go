@@ -119,7 +119,7 @@ func (app *App) getDetailedTagsHandler(c *gin.Context) {
 	}
 
 	selectionMode := currentTagSelectionMode()
-	detailedTags := buildDetailedTags(tags, selectionMode, configuredNonClassificationTagNames())
+	detailedTags := buildDetailedTagsWithParentCandidates(tags, selectionMode, configuredNonClassificationTagNames(), configuredTagParentCandidateNames())
 	c.JSON(http.StatusOK, DetailedTagsResponse{
 		Tags:           detailedTags,
 		SelectionMode:  selectionMode,

@@ -78,6 +78,7 @@ export interface TagOption {
   is_workflow?: boolean;
   is_system?: boolean;
   is_derived?: boolean;
+  is_parent_candidate?: boolean;
 }
 
 export interface DocumentTypeOption {
@@ -258,7 +259,13 @@ const getDescendantNames = (availableTags: TagOption[], tagName: string) => {
   return descendants;
 };
 
-const addDerivedParentTags = (selectedTags: string[], removeTags: string[], availableTags: TagOption[], derivedParents: boolean) => {
+const addDerivedParentTags = (
+  selectedTags: string[],
+  removeTags: string[],
+  availableTags: TagOption[],
+  derivedParents: boolean,
+  addTagParents: Record<string, number> = {}
+) => {
   if (!derivedParents) return uniqueTags(selectedTags);
 
   const withParents = uniqueTags(selectedTags);
@@ -268,6 +275,20 @@ const addDerivedParentTags = (selectedTags: string[], removeTags: string[], avai
         withParents.push(parent.name);
       }
     });
+    const pendingParentId = addTagParents[tagName];
+    if (pendingParentId) {
+      const parent = availableTags.find((candidate) => Number(candidate.id) === pendingParentId);
+      if (parent && !includesTag(removeTags, parent.name) && !includesTag(withParents, parent.name)) {
+        withParents.push(parent.name);
+      }
+      if (parent) {
+        getParentChain(availableTags, parent.name).forEach((ancestor) => {
+          if (!includesTag(removeTags, ancestor.name) && !includesTag(withParents, ancestor.name)) {
+            withParents.push(ancestor.name);
+          }
+        });
+      }
+    }
   });
 
   return uniqueTags(withParents);
@@ -278,10 +299,11 @@ const buildSelectedTags = (
   addTags: string[],
   removeTags: string[],
   availableTags: TagOption[] = [],
-  derivedParents = true
+  derivedParents = true,
+  addTagParents: Record<string, number> = {}
 ) => {
   const baseTags = uniqueTags([...originalTags, ...addTags]).filter((tag) => !includesTag(removeTags, tag));
-  return addDerivedParentTags(baseTags, removeTags, availableTags, derivedParents);
+  return addDerivedParentTags(baseTags, removeTags, availableTags, derivedParents, addTagParents);
 };
 
 const removeDerivedParentsWithoutChildren = (
@@ -457,13 +479,15 @@ const DocumentProcessor: React.FC = () => {
       const suggestedAddTags = suggestedTags.filter((tag) => !includesTag(originalTags, tag));
       const addTags = uniqueTags([...existingAddTags, ...suggestedAddTags]);
       const removeTags = uniqueTags(suggestion.remove_tags || []);
+      const addTagParents = suggestion.add_tag_parents || {};
 
       return {
         ...suggestion,
         keep_original_tags: true,
         add_tags: addTags,
+        add_tag_parents: addTagParents,
         remove_tags: removeTags,
-        suggested_tags: buildSelectedTags(originalTags, addTags, removeTags),
+        suggested_tags: buildSelectedTags(originalTags, addTags, removeTags, availableTags, tagDerivedParents, addTagParents),
         suggested_custom_fields: suggestion.suggested_custom_fields?.map((cf) => ({
           ...cf,
           name: customFieldMap.get(cf.id) ?? cf.name ?? "Unknown Field",
@@ -1045,7 +1069,7 @@ const DocumentProcessor: React.FC = () => {
           add_tags: addTags,
           add_tag_parents: addTagParents,
           remove_tags: removeTags,
-          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags, availableTags, tagDerivedParents),
+          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags, availableTags, tagDerivedParents, addTagParents),
         };
       })
     );
@@ -1108,7 +1132,7 @@ const DocumentProcessor: React.FC = () => {
           add_tags: normalizedTags.addTags,
           add_tag_parents: addTagParents,
           remove_tags: normalizedTags.removeTags,
-          suggested_tags: buildSelectedTags(originalTags, normalizedTags.addTags, normalizedTags.removeTags, availableTags, tagDerivedParents),
+          suggested_tags: buildSelectedTags(originalTags, normalizedTags.addTags, normalizedTags.removeTags, availableTags, tagDerivedParents, addTagParents),
         };
       })
     );
@@ -1128,7 +1152,7 @@ const DocumentProcessor: React.FC = () => {
           keep_original_tags: true,
           add_tags: addTags,
           remove_tags: removeTags,
-          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags, availableTags, tagDerivedParents),
+          suggested_tags: buildSelectedTags(originalTags, addTags, removeTags, availableTags, tagDerivedParents, doc.add_tag_parents || {}),
         };
       })
     );

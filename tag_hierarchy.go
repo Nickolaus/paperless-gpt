@@ -12,16 +12,17 @@ const (
 )
 
 type DetailedTag struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	ParentID     *int   `json:"parent_id,omitempty"`
-	Path         string `json:"path"`
-	Depth        int    `json:"depth"`
-	HasChildren  bool   `json:"has_children"`
-	IsApplicable bool   `json:"is_applicable"`
-	IsWorkflow   bool   `json:"is_workflow"`
-	IsSystem     bool   `json:"is_system"`
-	IsDerived    bool   `json:"is_derived"`
+	ID                int    `json:"id"`
+	Name              string `json:"name"`
+	ParentID          *int   `json:"parent_id,omitempty"`
+	Path              string `json:"path"`
+	Depth             int    `json:"depth"`
+	HasChildren       bool   `json:"has_children"`
+	IsApplicable      bool   `json:"is_applicable"`
+	IsWorkflow        bool   `json:"is_workflow"`
+	IsSystem          bool   `json:"is_system"`
+	IsDerived         bool   `json:"is_derived"`
+	IsParentCandidate bool   `json:"is_parent_candidate"`
 }
 
 type DetailedTagsResponse struct {
@@ -59,6 +60,17 @@ func configuredNonClassificationTagNames() map[string]bool {
 	return tagNames
 }
 
+func configuredTagParentCandidateNames() map[string]bool {
+	tagNames := map[string]bool{}
+	for _, name := range strings.Split(envDefault("TAG_PARENT_CANDIDATE_NAMES", ""), ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			tagNames[strings.ToLower(name)] = true
+		}
+	}
+	return tagNames
+}
+
 func envDefault(name, fallback string) string {
 	value := os.Getenv(name)
 	if value == "" {
@@ -79,6 +91,10 @@ func workflowTagNames() map[string]bool {
 }
 
 func buildDetailedTags(tags []Tag, selectionMode string, nonClassificationTags map[string]bool) []DetailedTag {
+	return buildDetailedTagsWithParentCandidates(tags, selectionMode, nonClassificationTags, nil)
+}
+
+func buildDetailedTagsWithParentCandidates(tags []Tag, selectionMode string, nonClassificationTags map[string]bool, parentCandidateNames map[string]bool) []DetailedTag {
 	tagsByID := map[int]Tag{}
 	childrenByParentID := map[int][]Tag{}
 	for _, tag := range tags {
@@ -103,22 +119,27 @@ func buildDetailedTags(tags []Tag, selectionMode string, nonClassificationTags m
 		hasChildren := len(childrenByParentID[tag.ID]) > 0
 		isWorkflow := workflowTags[nameKey]
 		isSystem := nonClassificationTags[nameKey]
+		isParentCandidate := !isWorkflow && !isSystem
+		if len(parentCandidateNames) > 0 {
+			isParentCandidate = parentCandidateNames[nameKey]
+		}
 		isApplicable := true
 		if selectionMode == tagSelectionModeApplicable {
 			isApplicable = !hasChildren && !isWorkflow && !isSystem
 		}
 
 		detailedTags = append(detailedTags, DetailedTag{
-			ID:           tag.ID,
-			Name:         tag.Name,
-			ParentID:     tag.ParentID,
-			Path:         strings.Join(pathParts, " / "),
-			Depth:        len(pathParts) - 1,
-			HasChildren:  hasChildren,
-			IsApplicable: isApplicable,
-			IsWorkflow:   isWorkflow,
-			IsSystem:     isSystem,
-			IsDerived:    false,
+			ID:                tag.ID,
+			Name:              tag.Name,
+			ParentID:          tag.ParentID,
+			Path:              strings.Join(pathParts, " / "),
+			Depth:             len(pathParts) - 1,
+			HasChildren:       hasChildren,
+			IsApplicable:      isApplicable,
+			IsWorkflow:        isWorkflow,
+			IsSystem:          isSystem,
+			IsDerived:         false,
+			IsParentCandidate: isParentCandidate,
 		})
 	}
 

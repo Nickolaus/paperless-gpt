@@ -371,6 +371,30 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 	})
 }
 
+func TestFilterSuggestedTagsWithParents(t *testing.T) {
+	t.Setenv("TAG_SELECTION_MODE", tagSelectionModeApplicable)
+	parentID := 1
+	detailedTags := buildDetailedTagsWithParentCandidates([]Tag{
+		{ID: 1, Name: "Versicherung"},
+		{ID: 2, Name: "Kfz", ParentID: &parentID},
+		{ID: 3, Name: "Technik"},
+	}, tagSelectionModeApplicable, nil, map[string]bool{"versicherung": true})
+
+	tags, parents := filterSuggestedTagsWithParents(
+		[]string{"Versicherung / Kfz", "Versicherung / Haftpflicht", "Technik / Router", "BareNew"},
+		nil,
+		[]string{"Kfz", "Technik"},
+		detailedTags,
+		true,
+	)
+
+	assert.Contains(t, tags, "Kfz")
+	assert.Contains(t, tags, "Haftpflicht")
+	assert.NotContains(t, tags, "Router")
+	assert.NotContains(t, tags, "BareNew")
+	assert.Equal(t, 1, parents["Haftpflicht"])
+}
+
 func TestTokenLimitInTitleGeneration(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 

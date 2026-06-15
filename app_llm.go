@@ -79,8 +79,36 @@ func cleanLLMScalar(value string) string {
 }
 
 func filterSuggestedTags(suggestedTags []string, originalTags []string, availableTags []string, allowNewTags bool) []string {
+	filteredTags, _ := filterSuggestedTagsWithParents(suggestedTags, originalTags, availableTags, nil, allowNewTags)
+	return filteredTags
+}
+
+func filterSuggestedTagsWithParents(suggestedTags []string, originalTags []string, availableTags []string, detailedTags []DetailedTag, allowNewTags bool) ([]string, map[string]int) {
 	filteredTags := []string{}
+	addTagParents := map[string]int{}
 	originalTagNames := tagNameSet(originalTags)
+	availableByName := map[string]string{}
+	for _, availableTag := range availableTags {
+		availableByName[strings.ToLower(availableTag)] = availableTag
+	}
+	detailedByName := map[string]DetailedTag{}
+	detailedByPath := map[string]DetailedTag{}
+	parentCandidatesByPath := map[string]DetailedTag{}
+	for _, tag := range detailedTags {
+		detailedByName[strings.ToLower(tag.Name)] = tag
+		if tag.Path != "" {
+			detailedByPath[strings.ToLower(tag.Path)] = tag
+		}
+		if tag.IsParentCandidate {
+			parentCandidatesByPath[strings.ToLower(tag.Path)] = tag
+			parentCandidatesByPath[strings.ToLower(tag.Name)] = tag
+		}
+	}
+	appendTag := func(tagName string) {
+		if !tagNameSet(filteredTags)[strings.ToLower(tagName)] {
+			filteredTags = append(filteredTags, tagName)
+		}
+	}
 
 	for _, tag := range suggestedTags {
 		tag = cleanLLMScalar(tag)
@@ -88,27 +116,74 @@ func filterSuggestedTags(suggestedTags []string, originalTags []string, availabl
 			continue
 		}
 
-		matched := false
-		for _, availableTag := range availableTags {
-			if strings.EqualFold(tag, availableTag) {
-				filteredTags = append(filteredTags, availableTag)
-				matched = true
-				break
-			}
+		if availableTag, exists := availableByName[strings.ToLower(tag)]; exists {
+			appendTag(availableTag)
+			continue
 		}
-		if !matched && allowNewTags {
-			filteredTags = append(filteredTags, tag)
+
+		if detailedTag, exists := detailedByPath[strings.ToLower(tag)]; exists {
+			if availableTag, available := availableByName[strings.ToLower(detailedTag.Name)]; available {
+				appendTag(availableTag)
+			}
+			continue
+		}
+
+		if childName, parentID, ok := parseSuggestedChildTagPath(tag, parentCandidatesByPath, detailedByName); ok {
+			if availableTag, exists := availableByName[strings.ToLower(childName)]; exists {
+				appendTag(availableTag)
+				continue
+			}
+			if allowNewTags {
+				appendTag(childName)
+				addTagParents[childName] = parentID
+			}
+			continue
+		}
+
+		if allowNewTags && currentTagSelectionMode() != tagSelectionModeApplicable {
+			appendTag(tag)
 		}
 	}
 	for _, tag := range originalTags {
 		tag = cleanLLMScalar(tag)
 		if tag != "" && originalTagNames[strings.ToLower(tag)] {
-			filteredTags = append(filteredTags, tag)
+			appendTag(tag)
 		}
 	}
 
 	slices.Sort(filteredTags)
-	return slices.Compact(filteredTags)
+	if len(addTagParents) == 0 {
+		return slices.Compact(filteredTags), nil
+	}
+	return slices.Compact(filteredTags), addTagParents
+}
+
+func parseSuggestedChildTagPath(tagPath string, parentCandidatesByPath map[string]DetailedTag, detailedByName map[string]DetailedTag) (string, int, bool) {
+	parts := strings.Split(tagPath, "/")
+	if len(parts) < 2 {
+		return "", 0, false
+	}
+	cleanedParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = cleanLLMScalar(part)
+		if part != "" {
+			cleanedParts = append(cleanedParts, part)
+		}
+	}
+	if len(cleanedParts) < 2 {
+		return "", 0, false
+	}
+
+	childName := cleanedParts[len(cleanedParts)-1]
+	parentPath := strings.Join(cleanedParts[:len(cleanedParts)-1], " / ")
+	parent, exists := parentCandidatesByPath[strings.ToLower(parentPath)]
+	if !exists {
+		return "", 0, false
+	}
+	if existingTag, exists := detailedByName[strings.ToLower(childName)]; exists && existingTag.ParentID != nil && *existingTag.ParentID == parent.ID {
+		return existingTag.Name, parent.ID, true
+	}
+	return childName, parent.ID, true
 }
 
 func validateSuggestedCorrespondent(suggestion string, availableCorrespondents []string, blacklist []string) string {
@@ -633,6 +708,8 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 type suggestionGenerationContext struct {
 	availableTagNames            []string
 	availableTagContext          string
+	availableDetailedTags        []DetailedTag
+	availableParentTagPaths      []string
 	availableCorrespondentNames  []string
 	availableDocumentTypeNames   []string
 	availableDocumentTypeContext string
@@ -641,6 +718,7 @@ type suggestionGenerationContext struct {
 type coreMetadataSuggestion struct {
 	Title           string
 	Tags            []string
+	AddTagParents   map[string]int
 	Correspondent   string
 	DocumentType    string
 	CreatedDate     string
@@ -700,7 +778,7 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 
 		generationContext.availableTagNames = make([]string, 0, len(availableTags))
 		filteredTags := make([]Tag, 0, len(availableTags))
-		detailedTags := buildDetailedTags(availableTags, currentTagSelectionMode(), configuredNonClassificationTagNames())
+		detailedTags := buildDetailedTagsWithParentCandidates(availableTags, currentTagSelectionMode(), configuredNonClassificationTagNames(), configuredTagParentCandidateNames())
 		availableByID := make(map[int]DetailedTag, len(detailedTags))
 		for _, tag := range detailedTags {
 			availableByID[tag.ID] = tag
@@ -713,9 +791,14 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 			if detailedTag.IsApplicable {
 				generationContext.availableTagNames = append(generationContext.availableTagNames, tag.Name)
 			}
+			if detailedTag.IsParentCandidate {
+				generationContext.availableParentTagPaths = append(generationContext.availableParentTagPaths, detailedTag.Path)
+			}
+			generationContext.availableDetailedTags = append(generationContext.availableDetailedTags, detailedTag)
 			filteredTags = append(filteredTags, tag)
 		}
 		slices.Sort(generationContext.availableTagNames)
+		slices.Sort(generationContext.availableParentTagPaths)
 		generationContext.availableTagContext = formatTagTaxonomy(filteredTags)
 	}
 
@@ -776,6 +859,7 @@ func (app *App) getSuggestedCoreMetadata(ctx context.Context, suggestionRequest 
 		"GenerateCreatedDate":          suggestionRequest.GenerateCreatedDate,
 		"AvailableTags":                availableTags,
 		"AvailableTagContext":          generationContext.availableTagContext,
+		"AvailableTagParents":          generationContext.availableParentTagPaths,
 		"OriginalTags":                 doc.Tags,
 		"AvailableCorrespondents":      generationContext.availableCorrespondentNames,
 		"BlackList":                    correspondentBlackList,
@@ -825,7 +909,13 @@ func (app *App) getSuggestedCoreMetadata(ctx context.Context, suggestionRequest 
 		result.GeneratedFields++
 	}
 	if suggestionRequest.GenerateTags {
-		result.Tags = filterSuggestedTags(llmResponse.Tags, doc.Tags, availableTags, createNewTags)
+		result.Tags, result.AddTagParents = filterSuggestedTagsWithParents(
+			llmResponse.Tags,
+			doc.Tags,
+			availableTags,
+			generationContext.availableDetailedTags,
+			createNewTags,
+		)
 		result.GeneratedFields++
 	}
 	if suggestionRequest.GenerateCorrespondents {
@@ -852,6 +942,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 
 	suggestedTitle := doc.Title
 	var suggestedTags []string
+	var suggestedTagParents map[string]int
 	var suggestedCorrespondent string
 	var suggestedDocumentType string
 	var suggestedCreatedDate string
@@ -885,6 +976,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			}
 			if suggestionRequest.GenerateTags {
 				suggestedTags = metadata.Tags
+				suggestedTagParents = metadata.AddTagParents
 				successfulFields++
 			}
 			if suggestionRequest.GenerateCorrespondents {
@@ -944,6 +1036,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	if suggestionRequest.GenerateTags {
 		docLogger.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
 		suggestion.SuggestedTags = suggestedTags
+		suggestion.AddTagParents = suggestedTagParents
 	} else {
 		suggestion.SuggestedTags = doc.Tags
 	}

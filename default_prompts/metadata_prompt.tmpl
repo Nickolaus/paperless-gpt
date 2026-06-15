@@ -25,6 +25,8 @@ Rules:
 - The content is likely in {{.Language}}.
 - For title, follow this schema when the information is clear: {{.TitleSchema}}
 - For tags, prefer available tags. Suggest new tags only if highly relevant and no available tag fits.
+  When suggesting a new child tag, return it as "Existing Parent / New Child" using one of the available tag parents.
+  Do not invent new parent tags and do not change existing parent relationships.
 - For correspondent, prefer an exact or normalized match from the available correspondents. Never return a blacklisted correspondent.
 - For document_type, prefer an available document type. Suggest a new document type only if none of the available document types fit.
 - For created_date, return YYYY-MM-DD. If no date was found, use today's date: {{.Today}}.
@@ -37,6 +39,11 @@ Rules:
 <available_tag_taxonomy>
 {{.AvailableTagContext}}
 </available_tag_taxonomy>
+{{- end}}
+{{- if .AvailableTagParents}}
+<available_tag_parents>
+{{.AvailableTagParents | join ", "}}
+</available_tag_parents>
 {{- end}}
 <original_tags>
 {{.OriginalTags | join ", "}}
