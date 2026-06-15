@@ -83,6 +83,48 @@ func filterSuggestedTags(suggestedTags []string, originalTags []string, availabl
 	return filteredTags
 }
 
+func filterSuggestedRemoveTags(suggestedRemoveTags []string, originalTags []string) []string {
+	originalByName := map[string]string{}
+	for _, tag := range originalTags {
+		tag = cleanLLMScalar(tag)
+		if tag != "" {
+			originalByName[strings.ToLower(tag)] = tag
+		}
+	}
+
+	removedTags := []string{}
+	for _, tag := range suggestedRemoveTags {
+		tag = cleanLLMScalar(tag)
+		if tag == "" {
+			continue
+		}
+		if originalTag, exists := originalByName[strings.ToLower(tag)]; exists {
+			removedTags = appendUniqueStrings(removedTags, originalTag)
+		}
+	}
+	return removedTags
+}
+
+func appendUniqueStrings(values []string, additions ...string) []string {
+	for _, addition := range additions {
+		addition = cleanLLMScalar(addition)
+		if addition == "" {
+			continue
+		}
+		exists := false
+		for _, value := range values {
+			if strings.EqualFold(value, addition) {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			values = append(values, addition)
+		}
+	}
+	return values
+}
+
 func filterSuggestedTagsWithParents(suggestedTags []string, originalTags []string, availableTags []string, detailedTags []DetailedTag, allowNewTags bool) ([]string, map[string]int) {
 	filteredTags := []string{}
 	addTagParents := map[string]int{}
@@ -726,6 +768,7 @@ type suggestionGenerationContext struct {
 type coreMetadataSuggestion struct {
 	Title           string
 	Tags            []string
+	RemoveTags      []string
 	AddTagParents   map[string]int
 	Correspondent   string
 	DocumentType    string
@@ -736,6 +779,7 @@ type coreMetadataSuggestion struct {
 type coreMetadataLLMResponse struct {
 	Title         string   `json:"title"`
 	Tags          []string `json:"tags"`
+	RemoveTags    []string `json:"remove_tags"`
 	Correspondent string   `json:"correspondent"`
 	DocumentType  string   `json:"document_type"`
 	CreatedDate   string   `json:"created_date"`
@@ -924,6 +968,7 @@ func (app *App) getSuggestedCoreMetadata(ctx context.Context, suggestionRequest 
 			generationContext.availableDetailedTags,
 			createNewTags,
 		)
+		result.RemoveTags = filterSuggestedRemoveTags(llmResponse.RemoveTags, doc.Tags)
 		result.GeneratedFields++
 	}
 	if suggestionRequest.GenerateCorrespondents {
@@ -950,6 +995,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 
 	suggestedTitle := doc.Title
 	var suggestedTags []string
+	var suggestedRemoveTags []string
 	var suggestedTagParents map[string]int
 	var suggestedCorrespondent string
 	var suggestedDocumentType string
@@ -984,6 +1030,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			}
 			if suggestionRequest.GenerateTags {
 				suggestedTags = metadata.Tags
+				suggestedRemoveTags = metadata.RemoveTags
 				suggestedTagParents = metadata.AddTagParents
 				successfulFields++
 			}
@@ -1072,7 +1119,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		suggestion.FieldErrors = fieldErrors
 	}
 
-	suggestion.RemoveTags = []string{manualTag, autoTag}
+	suggestion.RemoveTags = appendUniqueStrings(suggestedRemoveTags, manualTag, autoTag)
 
 	elapsed := time.Since(startTime)
 	runtime := time.Unix(0, elapsed.Nanoseconds()).UTC()

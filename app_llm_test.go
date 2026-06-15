@@ -395,6 +395,15 @@ func TestFilterSuggestedTagsWithParents(t *testing.T) {
 	assert.Equal(t, 1, parents["Haftpflicht"])
 }
 
+func TestFilterSuggestedRemoveTags(t *testing.T) {
+	tags := filterSuggestedRemoveTags(
+		[]string{"fahrzeug", "unknown", "", "Kfz-Service"},
+		[]string{"Fahrzeug", "Kfz-Service", manualTag},
+	)
+
+	assert.Equal(t, []string{"Fahrzeug", "Kfz-Service"}, tags)
+}
+
 func TestTokenLimitInTitleGeneration(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 
@@ -624,6 +633,7 @@ func TestGenerateSingleDocumentSuggestionUsesSingleCoreMetadataCall(t *testing.T
 		responses: []string{`{
 			"title": "Example Insurance - Policy Overview - Vehicle Coverage",
 			"tags": ["Versicherung", "Neue KI Fantasie"],
+			"remove_tags": ["Fahrzeug"],
 			"correspondent": "Example Insurance",
 			"document_type": "Rechnung",
 			"created_date": "2025-11-11"
@@ -659,6 +669,7 @@ func TestGenerateSingleDocumentSuggestionUsesSingleCoreMetadataCall(t *testing.T
 	assert.Equal(t, 1, llm.callIndex)
 	assert.Equal(t, "Example Insurance - Policy Overview - Vehicle Coverage", suggestion.SuggestedTitle)
 	assert.Equal(t, []string{"Fahrzeug", "Versicherung"}, suggestion.SuggestedTags)
+	assert.ElementsMatch(t, []string{"Fahrzeug"}, suggestion.RemoveTags)
 	assert.Equal(t, "Example Insurance", suggestion.SuggestedCorrespondent)
 	assert.Equal(t, "Rechnung", suggestion.SuggestedDocumentType)
 	assert.Equal(t, "2025-11-11", suggestion.SuggestedCreatedDate)
