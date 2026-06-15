@@ -31,6 +31,23 @@ func TestBuildDetailedTagsApplicableMode(t *testing.T) {
 	assert.True(t, byName["Posteingang"].IsSystem)
 }
 
+func TestBuildDetailedTagsParentCandidatesCanBeRestricted(t *testing.T) {
+	detailedTags := buildDetailedTagsWithParentCandidates([]Tag{
+		{ID: 1, Name: "Finanzen"},
+		{ID: 2, Name: "Kontoauszug"},
+	}, tagSelectionModeApplicable, nil, map[string]bool{"finanzen": true})
+
+	byName := map[string]DetailedTag{}
+	for _, tag := range detailedTags {
+		byName[tag.Name] = tag
+	}
+
+	assert.True(t, byName["Finanzen"].IsParentCandidate)
+	assert.False(t, byName["Finanzen"].IsApplicable)
+	assert.False(t, byName["Kontoauszug"].IsParentCandidate)
+	assert.True(t, byName["Kontoauszug"].IsApplicable)
+}
+
 func TestNormalizeTagNamesForApplyAddsDerivedParents(t *testing.T) {
 	parentID := 1
 	detailedTags := buildDetailedTags([]Tag{
