@@ -64,10 +64,6 @@
     cursor: pointer;
   }
   
-  .sidebar.collapsed .menu-items li a {
-    display: none;
-  }
-  
   .sidebar.collapsed .logo {
     height: 40px;
     margin: auto;
