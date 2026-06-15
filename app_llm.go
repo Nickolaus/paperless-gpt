@@ -85,10 +85,18 @@ func filterSuggestedTags(suggestedTags []string, originalTags []string, availabl
 
 func filterSuggestedRemoveTags(suggestedRemoveTags []string, originalTags []string) []string {
 	originalByName := map[string]string{}
+	protectedTags := workflowTagNames()
+	for tagName := range configuredNonClassificationTagNames() {
+		protectedTags[tagName] = true
+	}
+	semanticOriginalCount := 0
 	for _, tag := range originalTags {
 		tag = cleanLLMScalar(tag)
 		if tag != "" {
 			originalByName[strings.ToLower(tag)] = tag
+			if !protectedTags[strings.ToLower(tag)] {
+				semanticOriginalCount++
+			}
 		}
 	}
 
@@ -98,9 +106,16 @@ func filterSuggestedRemoveTags(suggestedRemoveTags []string, originalTags []stri
 		if tag == "" {
 			continue
 		}
-		if originalTag, exists := originalByName[strings.ToLower(tag)]; exists {
+		tagKey := strings.ToLower(tag)
+		if protectedTags[tagKey] {
+			continue
+		}
+		if originalTag, exists := originalByName[tagKey]; exists {
 			removedTags = appendUniqueStrings(removedTags, originalTag)
 		}
+	}
+	if semanticOriginalCount > 0 && len(removedTags) >= semanticOriginalCount {
+		return nil
 	}
 	return removedTags
 }
@@ -123,6 +138,18 @@ func appendUniqueStrings(values []string, additions ...string) []string {
 		}
 	}
 	return values
+}
+
+func removeTagNames(tagNames []string, removeTags []string) []string {
+	removeSet := tagNameSet(removeTags)
+	result := []string{}
+	for _, tagName := range tagNames {
+		cleanedTag := cleanLLMScalar(tagName)
+		if cleanedTag != "" && !removeSet[strings.ToLower(cleanedTag)] {
+			result = appendUniqueStrings(result, cleanedTag)
+		}
+	}
+	return result
 }
 
 func filterSuggestedTagsWithParents(suggestedTags []string, originalTags []string, availableTags []string, detailedTags []DetailedTag, allowNewTags bool) ([]string, map[string]int) {
@@ -969,6 +996,7 @@ func (app *App) getSuggestedCoreMetadata(ctx context.Context, suggestionRequest 
 			createNewTags,
 		)
 		result.RemoveTags = filterSuggestedRemoveTags(llmResponse.RemoveTags, doc.Tags)
+		result.Tags = removeTagNames(result.Tags, result.RemoveTags)
 		result.GeneratedFields++
 	}
 	if suggestionRequest.GenerateCorrespondents {

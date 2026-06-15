@@ -396,12 +396,25 @@ func TestFilterSuggestedTagsWithParents(t *testing.T) {
 }
 
 func TestFilterSuggestedRemoveTags(t *testing.T) {
+	t.Setenv("TAG_NON_CLASSIFICATION_NAMES", "Posteingang")
+
 	tags := filterSuggestedRemoveTags(
-		[]string{"fahrzeug", "unknown", "", "Kfz-Service"},
-		[]string{"Fahrzeug", "Kfz-Service", manualTag},
+		[]string{"fahrzeug", "unknown", "", "Posteingang"},
+		[]string{"Fahrzeug", "Kfz-Service", "Posteingang"},
 	)
 
-	assert.Equal(t, []string{"Fahrzeug", "Kfz-Service"}, tags)
+	assert.Equal(t, []string{"Fahrzeug"}, tags)
+}
+
+func TestFilterSuggestedRemoveTagsRejectsWholesaleRemoval(t *testing.T) {
+	t.Setenv("TAG_NON_CLASSIFICATION_NAMES", "Posteingang")
+
+	tags := filterSuggestedRemoveTags(
+		[]string{"Fahrzeug", "Kfz-Service", "Posteingang"},
+		[]string{"Fahrzeug", "Kfz-Service", "Posteingang"},
+	)
+
+	assert.Empty(t, tags)
 }
 
 func TestTokenLimitInTitleGeneration(t *testing.T) {
@@ -654,7 +667,7 @@ func TestGenerateSingleDocumentSuggestionUsesSingleCoreMetadataCall(t *testing.T
 			ID:      123,
 			Title:   "Original",
 			Content: "Document content",
-			Tags:    []string{manualTag, "Fahrzeug"},
+			Tags:    []string{manualTag, "Fahrzeug", "Kfz-Service"},
 		},
 		suggestionGenerationContext{
 			availableTagNames:            []string{"Fahrzeug", "Versicherung", manualTag},
@@ -668,7 +681,7 @@ func TestGenerateSingleDocumentSuggestionUsesSingleCoreMetadataCall(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, 1, llm.callIndex)
 	assert.Equal(t, "Example Insurance - Policy Overview - Vehicle Coverage", suggestion.SuggestedTitle)
-	assert.Equal(t, []string{"Fahrzeug", "Versicherung"}, suggestion.SuggestedTags)
+	assert.Equal(t, []string{"Kfz-Service", "Versicherung"}, suggestion.SuggestedTags)
 	assert.ElementsMatch(t, []string{"Fahrzeug"}, suggestion.RemoveTags)
 	assert.Equal(t, "Example Insurance", suggestion.SuggestedCorrespondent)
 	assert.Equal(t, "Rechnung", suggestion.SuggestedDocumentType)
