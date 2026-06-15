@@ -939,6 +939,40 @@ The data will be provided using an XML-like format for clarity:
 <content>
 {{.Content}}
 </content>`,
+		`I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
+Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
+Use a concise and consistent naming style. Follow this title schema when the information is clear:
+{{.TitleSchema}}
+
+Interpret the title schema placeholders as:
+- sender: person, company, or institution the document is from or sent to
+- document_type: broad reusable document kind such as invoice, delivery note, contract, notice, statement, or policy
+- reference: invoice number, delivery note number, contract number, customer number, or similar identifier
+- subject: short human-readable detail that distinguishes this document, such as product, contract area, insured object, account, or case
+Use the document_type segment for the broad category, not for one-off descriptions. Put specific customer, product, account, insurance, or case context in the subject segment.
+Do not use wording such as "Vertragsliste", "Übersicht", "Aufstellung", "list", or "overview" as the title document_type segment; use a broader kind such as "Vertrag", "Rechnung", "Lieferschein", "Bescheid", or "Kontoauszug" when supported by the document.
+Use clear sender names instead of avoidable abbreviations when the content provides the full organization name.
+Avoid redundant title wording. If tags or Paperless metadata already capture a domain such as insurance, banking, taxes, utilities, healthcare, travel, housing, or work, do not repeat that same domain next to the title document kind unless it is needed to disambiguate the document.
+Do not prefix the title with a date, because paperless-ngx stores dates separately. Do not copy tags or document types into the title unless they are needed to make the title understandable.
+Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+
+The data will be provided using an XML-like format for clarity:
+
+<original_title>{{.Title}}</original_title>
+{{- if .AvailableTagContext}}
+<available_tag_taxonomy>
+{{.AvailableTagContext}}
+</available_tag_taxonomy>
+{{- end}}
+{{- if .AvailableDocumentTypeContext}}
+<available_document_types>
+{{.AvailableDocumentTypeContext}}
+</available_document_types>
+{{- end}}
+<content>
+{{.Content}}
+</content>`,
 	},
 	"metadata_prompt.tmpl": {
 		`I will provide you with the content of a document that has been partially read by OCR, so it may contain errors.
@@ -970,6 +1004,76 @@ Rules:
 - Title sender should be a clear human name, company, or institution. Prefer the full organization name over abbreviations when the document clearly provides it.
 - Title document_type must be a broad reusable document kind, not a one-off description. Do not use "Vertragsliste", "Übersicht", "Aufstellung", "list", or "overview" as the title document_type segment; use a broader kind such as "Vertrag", "Rechnung", "Lieferschein", "Bescheid", or "Kontoauszug" when supported by the document.
 - Put specific customer, product, account, insurance, or case context in the title subject.
+- Do not prefix the title with a date because Paperless stores dates separately.
+- For tags, prefer existing tags from the taxonomy. Suggest new tags only if highly relevant and no existing tag fits.
+- Keep existing non-workflow tags unless they are clearly wrong.
+- For correspondent, prefer an exact or normalized match from the available correspondents. Suggest a new correspondent only when none fits.
+- For document_type, prefer an existing available document type. Suggest a new type only if it is a broad reusable category.
+- Do not create narrow document types from a sender, customer, product, contract number, account number, subject line, or wording such as "list", "overview", "summary", "Liste", "Übersicht", or "Aufstellung".
+- If a document is an overview or list for a broader category, use the broader category for document_type and leave the specific detail for title, tags, or content.
+- For created_date, return YYYY-MM-DD. If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, use today's date: {{.Today}}.
+
+<available_tags>
+{{.AvailableTags | join ", "}}
+</available_tags>
+{{- if .AvailableTagContext}}
+
+<available_tag_taxonomy>
+{{.AvailableTagContext}}
+</available_tag_taxonomy>
+{{- end}}
+
+<original_tags>
+{{.OriginalTags | join ", "}}
+</original_tags>
+
+<available_correspondents>
+{{.AvailableCorrespondents | join ", "}}
+</available_correspondents>
+
+<blacklisted_correspondents>
+{{.BlackList | join ", "}}
+</blacklisted_correspondents>
+
+<available_document_types>
+{{.AvailableDocumentTypeContext}}
+</available_document_types>
+
+<original_title>{{.Title}}</original_title>
+
+<content>
+{{.Content}}
+</content>`,
+		`I will provide you with the content of a document that has been partially read by OCR, so it may contain errors.
+Your task is to suggest Paperless-ngx metadata in one JSON object.
+
+Return valid JSON only. Do not wrap it in Markdown.
+
+The JSON object must use these keys:
+{
+  "title": "",
+  "tags": [],
+  "correspondent": "",
+  "document_type": "",
+  "created_date": ""
+}
+
+Only fill keys requested below. For keys that are not requested, return an empty string or empty array.
+
+Requested fields:
+- title: {{.GenerateTitles}}
+- tags: {{.GenerateTags}}
+- correspondent: {{.GenerateCorrespondents}}
+- document_type: {{.GenerateDocumentTypes}}
+- created_date: {{.GenerateCreatedDate}}
+
+Rules:
+- The content is likely in {{.Language}}.
+- For title, follow this schema when the information is clear: {{.TitleSchema}}
+- Title sender should be a clear human name, company, or institution. Prefer the full organization name over abbreviations when the document clearly provides it.
+- Title document_type must be a broad reusable document kind, not a one-off description. Do not use "Vertragsliste", "Übersicht", "Aufstellung", "list", or "overview" as the title document_type segment; use a broader kind such as "Vertrag", "Rechnung", "Lieferschein", "Bescheid", or "Kontoauszug" when supported by the document.
+- Put specific customer, product, account, insurance, or case context in the title subject.
+- Avoid redundant title wording. If the suggested document_type or tags already capture a domain such as insurance, banking, taxes, utilities, healthcare, travel, housing, or work, do not repeat that same domain next to the title document kind unless it is needed to disambiguate the document.
 - Do not prefix the title with a date because Paperless stores dates separately.
 - For tags, prefer existing tags from the taxonomy. Suggest new tags only if highly relevant and no existing tag fits.
 - Keep existing non-workflow tags unless they are clearly wrong.

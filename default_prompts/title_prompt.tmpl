@@ -1,24 +1,22 @@
-I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
-Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
-If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
-Use a concise and consistent naming style. Follow this title schema when the information is clear:
+Suggest a concise Paperless-ngx title from OCR text. OCR may contain errors.
+Use the original title only when it adds real information.
+
+Follow this title schema when clear:
 {{.TitleSchema}}
 
-Interpret the title schema placeholders as:
-- sender: person, company, or institution the document is from or sent to
-- document_type: broad reusable document kind such as invoice, delivery note, contract, notice, statement, or policy
-- reference: invoice number, delivery note number, contract number, customer number, or similar identifier
-- subject: short human-readable detail that distinguishes this document, such as product, contract area, insured object, account, or case
-Use the document_type segment for the broad category, not for one-off descriptions. Put specific customer, product, account, insurance, or case context in the subject segment.
-Do not use wording such as "Vertragsliste", "Übersicht", "Aufstellung", "list", or "overview" as the title document_type segment; use a broader kind such as "Vertrag", "Rechnung", "Lieferschein", "Bescheid", or "Kontoauszug" when supported by the document.
-Use clear sender names instead of avoidable abbreviations when the content provides the full organization name.
-Avoid redundant title wording. If tags or Paperless metadata already capture a domain such as insurance, banking, taxes, utilities, healthcare, travel, housing, or work, do not repeat that same domain next to the title document kind unless it is needed to disambiguate the document.
-Do not prefix the title with a date, because paperless-ngx stores dates separately. Do not copy tags or document types into the title unless they are needed to make the title understandable.
-Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+Schema meaning:
+- sender: full person, company, or institution name
+- document_type: broad reusable kind, not list/overview wording
+- reference: invoice, delivery note, contract, customer, account, or case number
+- subject: short distinguishing detail
 
-The data will be provided using an XML-like format for clarity:
+Rules:
+- Language is likely {{.Language}}.
+- Do not prefix dates; Paperless stores dates separately.
+- Put domain/category details in the subject only when needed for clarity.
+- Avoid repeating domains already captured by tags or Paperless metadata.
+- Respond only with the title.
 
-<original_title>{{.Title}}</original_title>
 {{- if .AvailableTagContext}}
 <available_tag_taxonomy>
 {{.AvailableTagContext}}
@@ -29,6 +27,9 @@ The data will be provided using an XML-like format for clarity:
 {{.AvailableDocumentTypeContext}}
 </available_document_types>
 {{- end}}
+
+<original_title>{{.Title}}</original_title>
+
 <content>
 {{.Content}}
 </content>
