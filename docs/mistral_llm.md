@@ -25,6 +25,8 @@ environment:
   MISTRAL_API_KEY: "your_mistral_api_key"
   # Optional: specify model version
   MISTRAL_MODEL: "mistral-ocr-latest"
+  # Optional: remove transient extracted-image links from saved OCR text
+  MISTRAL_OCR_IMAGE_REFERENCE_MODE: "strip"
 ```
 
 ## Size Limits and Constraints
@@ -48,6 +50,7 @@ environment:
 - Preserves document structure
 - Maintains formatting like headers and lists
 - Handles tables and columns
+- Can include references to images extracted by Mistral. Set `MISTRAL_OCR_IMAGE_REFERENCE_MODE=strip` when those extracted-image placeholders should not be saved as document text.
 
 ## Error Handling
 

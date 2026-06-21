@@ -23,6 +23,11 @@ var (
 	mistralFilesEndpoint = "https://api.mistral.ai/v1/files"
 )
 
+const (
+	mistralOCRImageReferenceModePreserve = "preserve"
+	mistralOCRImageReferenceModeStrip    = "strip"
+)
+
 // MistralOCRProvider implements the OCR Provider interface using Mistral's OCR API
 type MistralOCRProvider struct {
 	apiKey                      string
@@ -32,6 +37,7 @@ type MistralOCRProvider struct {
 	requestTimeout              time.Duration
 	confidenceScoresGranularity string
 	tableFormat                 string
+	imageReferenceMode          string
 }
 
 // MistralOCRRequest represents the request body for the Mistral OCR API
@@ -53,12 +59,21 @@ type MistralOCRTable struct {
 	Format  string `json:"format"`
 }
 
+type MistralOCRImage struct {
+	ID           string `json:"id"`
+	TopLeftX     int    `json:"top_left_x,omitempty"`
+	TopLeftY     int    `json:"top_left_y,omitempty"`
+	BottomRightX int    `json:"bottom_right_x,omitempty"`
+	BottomRightY int    `json:"bottom_right_y,omitempty"`
+	ImageBase64  string `json:"image_base64,omitempty"`
+}
+
 // MistralOCRResponse represents the response from Mistral's OCR API
 type MistralOCRResponse struct {
 	Pages []struct {
 		Index      int               `json:"index"`
 		Markdown   string            `json:"markdown"`
-		Images     []interface{}     `json:"images"`
+		Images     []MistralOCRImage `json:"images"`
 		Tables     []MistralOCRTable `json:"tables,omitempty"`
 		Dimensions struct {
 			Dpi    int `json:"dpi"`
@@ -120,6 +135,7 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 		}(),
 		confidenceScoresGranularity: config.MistralOCRConfidenceScoresGranularity,
 		tableFormat:                 config.MistralOCRTableFormat,
+		imageReferenceMode:          normalizeMistralOCRImageReferenceMode(config.MistralOCRImageReferenceMode),
 	}, nil
 }
 
@@ -485,6 +501,81 @@ func tableReferenceCandidates(id string) []string {
 	return unique
 }
 
+func applyMistralImageReferenceMode(markdown string, images []MistralOCRImage, mode string) (string, int) {
+	normalizedMode := normalizeMistralOCRImageReferenceMode(mode)
+	if normalizedMode != mistralOCRImageReferenceModeStrip || len(images) == 0 {
+		return markdown, 0
+	}
+
+	stripped := markdown
+	referenceCount := 0
+
+	for _, image := range images {
+		for _, candidate := range imageReferenceCandidates(image.ID) {
+			for _, placeholder := range []string{
+				fmt.Sprintf("![%s](%s)", candidate, candidate),
+				fmt.Sprintf("![%s](./%s)", candidate, candidate),
+				fmt.Sprintf("[%s](%s)", candidate, candidate),
+				fmt.Sprintf("[%s](./%s)", candidate, candidate),
+			} {
+				if strings.Contains(stripped, placeholder) {
+					stripped = strings.ReplaceAll(stripped, placeholder, "")
+					referenceCount++
+				}
+			}
+		}
+	}
+
+	for strings.Contains(stripped, "\n\n\n") {
+		stripped = strings.ReplaceAll(stripped, "\n\n\n", "\n\n")
+	}
+
+	return strings.TrimSpace(stripped), referenceCount
+}
+
+func normalizeMistralOCRImageReferenceMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", mistralOCRImageReferenceModePreserve:
+		return mistralOCRImageReferenceModePreserve
+	case mistralOCRImageReferenceModeStrip:
+		return mistralOCRImageReferenceModeStrip
+	default:
+		return mistralOCRImageReferenceModePreserve
+	}
+}
+
+func imageReferenceCandidates(id string) []string {
+	normalized := strings.TrimSpace(id)
+	if normalized == "" {
+		return nil
+	}
+
+	candidates := []string{normalized}
+	base := path.Base(normalized)
+	if base != normalized {
+		candidates = append(candidates, base)
+	}
+	withoutExt := strings.TrimSuffix(base, path.Ext(base))
+	if withoutExt != "" && withoutExt != base {
+		candidates = append(candidates, withoutExt)
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		unique = append(unique, candidate)
+	}
+
+	return unique
+}
+
 // processDocument sends the OCR request to Mistral's API
 func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCRRequest, logger *logrus.Entry) (string, map[string]interface{}, error) {
 	logger.Debug("Processing document with Mistral OCR API")
@@ -566,17 +657,26 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 	// Combine text from all pages
 	var combinedText string
 	totalTablesExpanded := 0
+	totalImagesSeen := 0
+	totalImageReferencesStripped := 0
+	imageReferenceMode := normalizeMistralOCRImageReferenceMode(p.imageReferenceMode)
 	for i, page := range ocrResp.Pages {
 		pageText, tablesExpanded := expandMistralTableReferences(page.Markdown, page.Tables)
+		pageText, imageReferencesStripped := applyMistralImageReferenceMode(pageText, page.Images, imageReferenceMode)
 		totalTablesExpanded += tablesExpanded
+		totalImagesSeen += len(page.Images)
+		totalImageReferencesStripped += imageReferencesStripped
 		logger.WithFields(logrus.Fields{
-			"page_index":      i,
-			"page_markdown":   len(page.Markdown),
-			"page_tables":     len(page.Tables),
-			"tables_expanded": tablesExpanded,
-			"page_dpi":        page.Dimensions.Dpi,
-			"page_width":      page.Dimensions.Width,
-			"page_height":     page.Dimensions.Height,
+			"page_index":                i,
+			"page_markdown":             len(page.Markdown),
+			"page_tables":               len(page.Tables),
+			"tables_expanded":           tablesExpanded,
+			"page_images":               len(page.Images),
+			"image_references_stripped": imageReferencesStripped,
+			"image_reference_mode":      imageReferenceMode,
+			"page_dpi":                  page.Dimensions.Dpi,
+			"page_width":                page.Dimensions.Width,
+			"page_height":               page.Dimensions.Height,
 		}).Debug("Processing page content")
 
 		combinedText += pageText + "\n"
@@ -589,11 +689,14 @@ func (p *MistralOCRProvider) processDocument(ctx context.Context, req MistralOCR
 
 	logger.WithField("combined_text_length", len(combinedText)).Info("Successfully extracted text")
 	generationInfo := map[string]interface{}{
-		"provider":        "mistral_ocr",
-		"model":           ocrResp.Model,
-		"pages_processed": ocrResp.UsageInfo.PagesProcessed,
-		"doc_size_bytes":  ocrResp.UsageInfo.DocSizeBytes,
-		"tables_expanded": totalTablesExpanded,
+		"provider":                  "mistral_ocr",
+		"model":                     ocrResp.Model,
+		"pages_processed":           ocrResp.UsageInfo.PagesProcessed,
+		"doc_size_bytes":            ocrResp.UsageInfo.DocSizeBytes,
+		"tables_expanded":           totalTablesExpanded,
+		"images_seen":               totalImagesSeen,
+		"image_references_stripped": totalImageReferencesStripped,
+		"image_reference_mode":      imageReferenceMode,
 	}
 	if ocrResp.ConfidenceScores != nil {
 		generationInfo["confidence_scores_present"] = true

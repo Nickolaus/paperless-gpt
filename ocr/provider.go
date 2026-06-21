@@ -48,6 +48,7 @@ type Config struct {
 	MistralOCRRequestTimeout              time.Duration
 	MistralOCRConfidenceScoresGranularity string
 	MistralOCRTableFormat                 string
+	MistralOCRImageReferenceMode          string
 
 	// Generic Vision LLM settings
 	VisionLLMMaxTokens   int
