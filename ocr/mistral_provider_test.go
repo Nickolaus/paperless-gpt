@@ -114,7 +114,7 @@ func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
 		Pages: []struct {
 			Index      int               `json:"index"`
 			Markdown   string            `json:"markdown"`
-			Images     []interface{}     `json:"images"`
+			Images     []MistralOCRImage `json:"images"`
 			Tables     []MistralOCRTable `json:"tables,omitempty"`
 			Dimensions struct {
 				Dpi    int `json:"dpi"`
@@ -125,7 +125,7 @@ func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
 			{
 				Index:    0,
 				Markdown: "Test OCR output",
-				Images:   []interface{}{},
+				Images:   []MistralOCRImage{},
 				Dimensions: struct {
 					Dpi    int `json:"dpi"`
 					Height int `json:"height"`
@@ -222,6 +222,14 @@ func TestNewMistralOCRProvider(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid config with image reference mode",
+			config: Config{
+				MistralAPIKey:                "test-key",
+				MistralOCRImageReferenceMode: "strip",
+			},
+			wantErr: false,
+		},
+		{
 			name:        "missing API key",
 			config:      Config{},
 			wantErr:     true,
@@ -247,6 +255,11 @@ func TestNewMistralOCRProvider(t *testing.T) {
 					assert.Equal(t, tt.config.MistralModel, mistralProvider.model)
 				} else {
 					assert.Equal(t, "mistral-ocr-latest", mistralProvider.model)
+				}
+				if tt.config.MistralOCRImageReferenceMode != "" {
+					assert.Equal(t, tt.config.MistralOCRImageReferenceMode, mistralProvider.imageReferenceMode)
+				} else {
+					assert.Equal(t, mistralOCRImageReferenceModePreserve, mistralProvider.imageReferenceMode)
 				}
 			}
 		})
@@ -342,6 +355,59 @@ func TestExpandMistralTableReferences(t *testing.T) {
 			for _, unexpected := range tt.wantNotContain {
 				assert.NotContains(t, got, unexpected)
 			}
+		})
+	}
+}
+
+func TestApplyMistralImageReferenceMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		markdown  string
+		images    []MistralOCRImage
+		mode      string
+		want      string
+		wantCount int
+	}{
+		{
+			name:      "preserves image references by default",
+			markdown:  "Intro\n\n![img-0.jpeg](img-0.jpeg)\n\nCaption",
+			images:    []MistralOCRImage{{ID: "img-0.jpeg"}},
+			mode:      "",
+			want:      "Intro\n\n![img-0.jpeg](img-0.jpeg)\n\nCaption",
+			wantCount: 0,
+		},
+		{
+			name:      "strips returned image reference",
+			markdown:  "Intro\n\n![img-0.jpeg](img-0.jpeg)\n\nCaption",
+			images:    []MistralOCRImage{{ID: "img-0.jpeg"}},
+			mode:      "strip",
+			want:      "Intro\n\nCaption",
+			wantCount: 1,
+		},
+		{
+			name:      "strips path basename references",
+			markdown:  "Intro\n\n![img-1.jpeg](./img-1.jpeg)\n\nCaption",
+			images:    []MistralOCRImage{{ID: "images/img-1.jpeg"}},
+			mode:      "strip",
+			want:      "Intro\n\nCaption",
+			wantCount: 1,
+		},
+		{
+			name:      "does not strip unrelated image reference",
+			markdown:  "Intro\n\n![logo.jpeg](logo.jpeg)\n\nCaption",
+			images:    []MistralOCRImage{{ID: "img-0.jpeg"}},
+			mode:      "strip",
+			want:      "Intro\n\n![logo.jpeg](logo.jpeg)\n\nCaption",
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, count := applyMistralImageReferenceMode(tt.markdown, tt.images, tt.mode)
+
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantCount, count)
 		})
 	}
 }

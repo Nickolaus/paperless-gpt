@@ -281,6 +281,7 @@ func main() {
 		MistralModel:                          os.Getenv("MISTRAL_MODEL"),
 		MistralOCRConfidenceScoresGranularity: os.Getenv("MISTRAL_OCR_CONFIDENCE_GRANULARITY"),
 		MistralOCRTableFormat:                 os.Getenv("MISTRAL_OCR_TABLE_FORMAT"),
+		MistralOCRImageReferenceMode:          os.Getenv("MISTRAL_OCR_IMAGE_REFERENCE_MODE"),
 		DoclingURL:                            doclingURL,
 		DoclingImageExportMode:                doclingImageExportMode,
 		DoclingOCRPipeline:                    doclingOCRPipeline,
