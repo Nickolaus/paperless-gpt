@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+# Already running as a fixed non-root user (e.g. Kubernetes securityContext
+# with runAsNonRoot/runAsUser) — the PUID/PGID remap below needs root
+# privileges (chown, adduser, su-exec) we don't have here and don't need,
+# since the runtime already pins the UID.
+if [ "$(id -u)" != "0" ]; then
+    exec /app/paperless-gpt
+fi
+
 # Use environment variables PUID/PGID, otherwise default to 10001
 PUID=${PUID:-10001}
 PGID=${PGID:-10001}

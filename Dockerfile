@@ -110,4 +110,4 @@ COPY default_prompts/ /app/default_prompts/
 EXPOSE 8080
 
 # Set the entrypoint
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]
