@@ -31,6 +31,31 @@ func TestBuildDetailedTagsApplicableMode(t *testing.T) {
 	assert.True(t, byName["Posteingang"].IsSystem)
 }
 
+func TestBuildDetailedTagsAutoDetectParentCandidatesRequireChildren(t *testing.T) {
+	parentID := 1
+	detailedTags := buildDetailedTags([]Tag{
+		{ID: 1, Name: "Versicherung"},
+		{ID: 2, Name: "Kfz-Versicherung", ParentID: &parentID},
+		{ID: 3, Name: "Hausratversicherung"},
+	}, tagSelectionModeApplicable, nil)
+
+	byName := map[string]DetailedTag{}
+	for _, tag := range detailedTags {
+		byName[tag.Name] = tag
+	}
+
+	assert.True(t, byName["Versicherung"].HasChildren)
+	assert.True(t, byName["Versicherung"].IsParentCandidate)
+	assert.False(t, byName["Versicherung"].IsApplicable)
+
+	// Leaf tags without children must never be treated as parent buckets in
+	// auto-detect mode, even though they aren't workflow/system tags either.
+	assert.False(t, byName["Kfz-Versicherung"].IsParentCandidate)
+	assert.True(t, byName["Kfz-Versicherung"].IsApplicable)
+	assert.False(t, byName["Hausratversicherung"].IsParentCandidate)
+	assert.True(t, byName["Hausratversicherung"].IsApplicable)
+}
+
 func TestBuildDetailedTagsParentCandidatesCanBeRestricted(t *testing.T) {
 	detailedTags := buildDetailedTagsWithParentCandidates([]Tag{
 		{ID: 1, Name: "Finanzen"},

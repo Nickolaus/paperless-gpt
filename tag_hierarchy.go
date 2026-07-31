@@ -120,7 +120,13 @@ func buildDetailedTagsWithParentCandidates(tags []Tag, selectionMode string, non
 		hasChildren := len(childrenByParentID[tag.ID]) > 0
 		isWorkflow := workflowTags[nameKey]
 		isSystem := nonClassificationTags[nameKey]
-		isParentCandidate := !isWorkflow && !isSystem
+		// Auto-detect mode (no explicit TAG_PARENT_CANDIDATE_NAMES): a tag is a
+		// parent bucket only if it actually has children. Without the
+		// hasChildren check, every leaf classification tag would also be
+		// treated as a valid "Existing Parent" target, letting the model
+		// nest new children under tags that were never meant to be buckets
+		// and polluting the parent list shown in the prompt.
+		isParentCandidate := hasChildren && !isWorkflow && !isSystem
 		if hasExplicitParentCandidates {
 			isParentCandidate = parentCandidateNames[nameKey]
 		}
