@@ -19,6 +19,9 @@ export interface Document {
   correspondent: string;
   created_date?: string;
   document_type_name?: string;
+  /** Most recent OCR Playground run for this document, if any. */
+  last_ocr_status?: "in_progress" | "completed" | "failed" | "cancelled" | "interrupted";
+  last_ocr_at?: string;
 }
 
 export interface GenerateSuggestionsRequest {

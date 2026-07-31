@@ -99,6 +99,32 @@ func ListOCRRuns(db *gorm.DB, documentID int, limit, offset int) ([]OCRRun, int6
 	return runs, total, err
 }
 
+// LatestOCRRunsByDocumentIDs returns the most recent OCR run for each of the
+// given document IDs that has at least one run. Used to annotate document
+// lists (e.g. the OCR Playground picker) without one query per document.
+func LatestOCRRunsByDocumentIDs(db *gorm.DB, documentIDs []int) (map[int]OCRRun, error) {
+	result := make(map[int]OCRRun, len(documentIDs))
+	if len(documentIDs) == 0 {
+		return result, nil
+	}
+
+	var runs []OCRRun
+	if err := db.Where("document_id IN ?", documentIDs).
+		Order("started_at DESC").
+		Find(&runs).Error; err != nil {
+		return nil, err
+	}
+
+	// Runs are newest-first, so the first time we see a document ID is its
+	// latest run.
+	for _, run := range runs {
+		if _, exists := result[run.DocumentID]; !exists {
+			result[run.DocumentID] = run
+		}
+	}
+	return result, nil
+}
+
 // GetOCRRunByJobID returns a single run.
 func GetOCRRunByJobID(db *gorm.DB, jobID string) (*OCRRun, error) {
 	var run OCRRun

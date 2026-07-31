@@ -86,6 +86,11 @@ type Document struct {
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
+	// LastOCRStatus/LastOCRAt describe the most recent OCR Playground run for
+	// this document, if any. Only populated by handlers that opt in (the OCR
+	// document picker); empty for endpoints that don't need it.
+	LastOCRStatus string `json:"last_ocr_status,omitempty"`
+	LastOCRAt     string `json:"last_ocr_at,omitempty"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint

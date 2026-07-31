@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -66,6 +67,31 @@ func TestMarkInterruptedOCRRuns(t *testing.T) {
 	stored, err := GetOCRRunByJobID(db, "job-stale")
 	require.NoError(t, err)
 	assert.Equal(t, "interrupted", stored.Status)
+}
+
+func TestLatestOCRRunsByDocumentIDs(t *testing.T) {
+	db := newOCRRunTestDB(t)
+	base := time.Now()
+
+	require.NoError(t, db.Create(&OCRRun{JobID: "doc1-old", DocumentID: 1, Status: "failed", StartedAt: base}).Error)
+	require.NoError(t, db.Create(&OCRRun{JobID: "doc1-new", DocumentID: 1, Status: "completed", StartedAt: base.Add(time.Minute)}).Error)
+	require.NoError(t, db.Create(&OCRRun{JobID: "doc2-only", DocumentID: 2, Status: "in_progress", StartedAt: base}).Error)
+
+	latest, err := LatestOCRRunsByDocumentIDs(db, []int{1, 2, 3})
+	require.NoError(t, err)
+
+	require.Contains(t, latest, 1)
+	assert.Equal(t, "completed", latest[1].Status)
+	require.Contains(t, latest, 2)
+	assert.Equal(t, "in_progress", latest[2].Status)
+	assert.NotContains(t, latest, 3)
+}
+
+func TestLatestOCRRunsByDocumentIDsEmptyInput(t *testing.T) {
+	db := newOCRRunTestDB(t)
+	latest, err := LatestOCRRunsByDocumentIDs(db, nil)
+	require.NoError(t, err)
+	assert.Empty(t, latest)
 }
 
 func TestPruneOCRRunsKeepsPageTextsForRecentRuns(t *testing.T) {

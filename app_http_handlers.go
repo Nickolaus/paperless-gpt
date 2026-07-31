@@ -656,7 +656,9 @@ func (app *App) searchDocumentsHandler(c *gin.Context) {
 
 	if id := documentIDFromQuery(query); id > 0 {
 		if doc, err := app.Client.GetDocument(c.Request.Context(), id); err == nil {
-			c.JSON(http.StatusOK, gin.H{"documents": []Document{doc}})
+			documents := []Document{doc}
+			app.annotateDocumentsWithOCRStatus(documents)
+			c.JSON(http.StatusOK, gin.H{"documents": documents})
 			return
 		}
 		// Fall through to full-text search: the number might be part of a title.
@@ -668,7 +670,32 @@ func (app *App) searchDocumentsHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search documents"})
 		return
 	}
+	app.annotateDocumentsWithOCRStatus(documents)
 	c.JSON(http.StatusOK, gin.H{"documents": documents})
+}
+
+// annotateDocumentsWithOCRStatus fills in LastOCRStatus/LastOCRAt from local
+// OCR run history so the OCR Playground picker can show, at a glance, which
+// of the listed documents already have a recognized-text run.
+func (app *App) annotateDocumentsWithOCRStatus(documents []Document) {
+	if len(documents) == 0 {
+		return
+	}
+	ids := make([]int, len(documents))
+	for i, doc := range documents {
+		ids[i] = doc.ID
+	}
+	latest, err := LatestOCRRunsByDocumentIDs(app.Database, ids)
+	if err != nil {
+		log.Errorf("Error loading OCR run status for document list: %v", err)
+		return
+	}
+	for i, doc := range documents {
+		if run, ok := latest[doc.ID]; ok {
+			documents[i].LastOCRStatus = run.Status
+			documents[i].LastOCRAt = run.StartedAt.Format(time.RFC3339)
+		}
+	}
 }
 
 // getDocumentPageImageHandler serves a rendered page of a document for the
@@ -803,7 +830,9 @@ func (app *App) getDocumentHandler() gin.HandlerFunc {
 			log.Errorf("Error fetching document: %v", err)
 			return
 		}
-		c.JSON(http.StatusOK, document)
+		documents := []Document{document}
+		app.annotateDocumentsWithOCRStatus(documents)
+		c.JSON(http.StatusOK, documents[0])
 	}
 }
 

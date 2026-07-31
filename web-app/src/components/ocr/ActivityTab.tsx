@@ -1,31 +1,13 @@
-import {
-  ArrowPathIcon,
-  BoltIcon,
-  CheckCircleIcon,
-  ChevronDownIcon,
-  ExclamationTriangleIcon,
-  XCircleIcon,
-} from "@heroicons/react/24/outline";
+import { BoltIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../ui/Button";
-import { OCRConfig, OCRRun, fetchOCRRuns, formatRunOptions, runDuration } from "./api";
+import { OCRConfig, OCRRun, fetchOCRRuns, formatRunOptions, ocrStatusMeta as statusMeta, runDuration } from "./api";
 
 interface ActivityTabProps {
   config: OCRConfig;
 }
-
-const statusMeta: Record<
-  OCRRun["status"],
-  { label: string; className: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }
-> = {
-  in_progress: { label: "Running", className: "bg-primary-tint text-ink", icon: ArrowPathIcon },
-  completed: { label: "Completed", className: "bg-pos-tint text-pos", icon: CheckCircleIcon },
-  failed: { label: "Failed", className: "bg-neg-tint text-neg", icon: XCircleIcon },
-  cancelled: { label: "Cancelled", className: "bg-surface-2 text-muted", icon: XCircleIcon },
-  interrupted: { label: "Interrupted", className: "bg-warn-tint text-warn", icon: ExclamationTriangleIcon },
-};
 
 /**
  * OCR Activity: the persisted log of every OCR Run — manual and auto — so a

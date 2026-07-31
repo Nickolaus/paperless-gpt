@@ -8,7 +8,28 @@ import { DocumentIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useRef, useState } from "react";
 import { Document } from "../../DocumentProcessor";
-import { searchDocuments } from "./api";
+import { ocrStatusMeta, searchDocuments } from "./api";
+
+/** Compact "already OCR'd?" indicator for a document picker row. */
+const OCRStatusBadge: React.FC<{ status?: Document["last_ocr_status"] }> = ({
+  status,
+}) => {
+  if (!status) return null;
+  const meta = ocrStatusMeta[status];
+  const Icon = meta.icon;
+  return (
+    <span
+      title={`OCR ${meta.label.toLowerCase()}`}
+      className={classNames(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
+        meta.className
+      )}
+    >
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+};
 
 interface DocumentPickerProps {
   selected: Document | null;
@@ -110,9 +131,12 @@ const DocumentPicker: React.FC<DocumentPickerProps> = ({
                   (e.target as HTMLImageElement).style.visibility = "hidden";
                 }}
               />
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">
-                  {doc.title}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">
+                    {doc.title}
+                  </span>
+                  <OCRStatusBadge status={doc.last_ocr_status} />
                 </span>
                 <span className="block truncate text-xs text-muted">
                   {[
@@ -131,9 +155,10 @@ const DocumentPicker: React.FC<DocumentPickerProps> = ({
       {selected && (
         <div className="mt-3 flex items-center gap-3 rounded-md border border-line bg-surface-2 px-3 py-2">
           <DocumentIcon className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-          <p className="min-w-0 flex-1 truncate text-sm">
-            <span className="font-medium">{selected.title}</span>
-            <span className="text-faint"> · #{selected.id}</span>
+          <p className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm">
+            <span className="truncate font-medium">{selected.title}</span>
+            <span className="text-faint">· #{selected.id}</span>
+            <OCRStatusBadge status={selected.last_ocr_status} />
           </p>
           <span
             className={classNames(

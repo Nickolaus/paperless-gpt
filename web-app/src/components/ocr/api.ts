@@ -1,4 +1,11 @@
+import {
+  ArrowPathIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  XCircleIcon,
+} from "@heroicons/react/24/outline";
 import axios from "axios";
+import React from "react";
 import { Document } from "../../DocumentProcessor";
 
 export interface OCRRunOptions {
@@ -56,6 +63,18 @@ export interface OCRJobStatus {
   result?: string;
   error?: string;
 }
+
+/** Shared styling/labels for an OCR run status, used by the Activity log and the document picker badge. */
+export const ocrStatusMeta: Record<
+  OCRRun["status"],
+  { label: string; className: string; icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }
+> = {
+  in_progress: { label: "Running", className: "bg-primary-tint text-ink", icon: ArrowPathIcon },
+  completed: { label: "Completed", className: "bg-pos-tint text-pos", icon: CheckCircleIcon },
+  failed: { label: "Failed", className: "bg-neg-tint text-neg", icon: XCircleIcon },
+  cancelled: { label: "Cancelled", className: "bg-surface-2 text-muted", icon: XCircleIcon },
+  interrupted: { label: "Interrupted", className: "bg-warn-tint text-warn", icon: ExclamationTriangleIcon },
+};
 
 export interface OCRPage {
   pageIndex: number;

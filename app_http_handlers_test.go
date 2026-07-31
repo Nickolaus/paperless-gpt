@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -158,6 +159,20 @@ func TestUpdatePromptsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+}
+
+func TestAnnotateDocumentsWithOCRStatus(t *testing.T) {
+	db := newOCRRunTestDB(t)
+	require.NoError(t, db.Create(&OCRRun{JobID: "job-1", DocumentID: 1, Status: "completed", StartedAt: time.Now()}).Error)
+
+	app := &App{Database: db}
+	documents := []Document{{ID: 1, Title: "Has a run"}, {ID: 2, Title: "Never OCR'd"}}
+	app.annotateDocumentsWithOCRStatus(documents)
+
+	assert.Equal(t, "completed", documents[0].LastOCRStatus)
+	assert.NotEmpty(t, documents[0].LastOCRAt)
+	assert.Empty(t, documents[1].LastOCRStatus)
+	assert.Empty(t, documents[1].LastOCRAt)
 }
 
 func TestGetVersionHandler(t *testing.T) {
