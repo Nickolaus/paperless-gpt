@@ -146,28 +146,12 @@ type DocumentSuggestion struct {
 	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 }
 
+// Correspondent identifies a correspondent to create or look up by name.
+// createdCorrespondentRequestPayload builds the actual API request body
+// (matching, owner, and permission fields come from PAPERLESS_CREATED_CORRESPONDENT_*
+// env vars, not from this struct).
 type Correspondent struct {
-	Name              string `json:"name"`
-	MatchingAlgorithm int    `json:"matching_algorithm"`
-	Match             string `json:"match"`
-	IsInsensitive     bool   `json:"is_insensitive"`
-	// omitempty so nil owners are dropped from the JSON body; paperless-ngx
-	// then falls back to the request user (request.user) as the owner of
-	// the newly created object. Sending "owner": null overrides that and
-	// produces ownerless correspondents — they still appear in the
-	// correspondents list, but documents assigned to them are shown as
-	// "private" in the UI instead of the correspondent name.
-	Owner             *int   `json:"owner,omitempty"`
-	SetPermissions    struct {
-		View struct {
-			Users  []int `json:"users"`
-			Groups []int `json:"groups"`
-		} `json:"view"`
-		Change struct {
-			Users  []int `json:"users"`
-			Groups []int `json:"groups"`
-		} `json:"change"`
-	} `json:"set_permissions"`
+	Name string `json:"name"`
 }
 
 // OCROptions contains options for the OCR processing

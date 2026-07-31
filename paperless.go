@@ -59,14 +59,23 @@ type CustomField struct {
 	ExtraData *CustomFieldExtraData `json:"extra_data"`
 }
 
-// DocumentType represents a document type from the Paperless-ngx API
+// DocumentType represents a document type from the Paperless-ngx API.
+// createdDocumentTypeRequestPayload builds the create-request body separately
+// (matching, owner, and permission fields come from PAPERLESS_CREATED_DOCUMENT_TYPE_*
+// env vars); these struct fields are only populated when decoding GET responses.
 type DocumentType struct {
 	ID                int    `json:"id,omitempty"`
 	Name              string `json:"name"`
 	MatchingAlgorithm int    `json:"matching_algorithm,omitempty"`
 	Match             string `json:"match"`
 	IsInsensitive     bool   `json:"is_insensitive"`
-	Owner             *int   `json:"owner"`
+	// omitempty: without it, marshaling this struct always sends "owner":
+	// null, which forces every newly created document type ownerless and
+	// renders it as "Private" in the Paperless UI for non-superusers. This
+	// struct is no longer marshaled directly for creation (see
+	// createdDocumentTypeRequestPayload), but keep the tag correct since it's
+	// still a public API-response shape.
+	Owner *int `json:"owner,omitempty"`
 }
 
 // Tag represents a tag from the Paperless-ngx API.
@@ -1566,25 +1575,13 @@ func urlEncode(s string) string {
 	return strings.ReplaceAll(s, " ", "+")
 }
 
-// instantiateCorrespondent creates a new Correspondent object with default values
+// instantiateCorrespondent creates a new Correspondent lookup/create request by name.
 func instantiateCorrespondent(name string) Correspondent {
-	return Correspondent{
-		Name:              name,
-		MatchingAlgorithm: 0,
-		Match:             "",
-		IsInsensitive:     true,
-		Owner:             nil,
-	}
+	return Correspondent{Name: name}
 }
 
 func instantiateDocumentType(name string) DocumentType {
-	return DocumentType{
-		Name:              name,
-		MatchingAlgorithm: 0,
-		Match:             "",
-		IsInsensitive:     true,
-		Owner:             nil,
-	}
+	return DocumentType{Name: name}
 }
 
 // CreateOrGetCorrespondent creates a new correspondent or returns existing one if name already exists
@@ -1603,7 +1600,11 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 
 	// If not found, create new correspondent
 	url := "api/correspondents/"
-	jsonData, err := json.Marshal(correspondent)
+	payload, err := createdCorrespondentRequestPayload(correspondent.Name)
+	if err != nil {
+		return 0, err
+	}
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
 	}
@@ -1643,7 +1644,11 @@ func (client *PaperlessClient) CreateOrGetDocumentType(ctx context.Context, docu
 		}
 	}
 
-	jsonData, err := json.Marshal(documentType)
+	payload, err := createdDocumentTypeRequestPayload(documentType.Name)
+	if err != nil {
+		return 0, err
+	}
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
 	}
@@ -1875,6 +1880,48 @@ func parseOptionalIntListEnv(name string) ([]int, bool, error) {
 	return ids, true, nil
 }
 
+// objectOwnerAndPermissionFields returns the owner/set_permissions fields
+// shared by every managed taxonomy object Paperless-GPT can create (tags,
+// correspondents, document types), driven by PAPERLESS_CREATED_<kind>_OWNER_ID,
+// PAPERLESS_CREATED_<kind>_VIEW_GROUP_IDS, and PAPERLESS_CREATED_<kind>_CHANGE_GROUP_IDS.
+// Leaving both group lists unconfigured omits set_permissions entirely rather
+// than sending an explicit empty grant, which would deny view/change to
+// everyone except the owner and the object's creator (see kind == "CORRESPONDENT"
+// and kind == "DOCUMENT_TYPE" callers, which previously had no way to grant
+// household groups view access and rendered as "Private" in the Paperless UI).
+func objectOwnerAndPermissionFields(kind string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{}
+
+	if owner, configured, err := parseOptionalObjectOwner(os.Getenv("PAPERLESS_CREATED_" + kind + "_OWNER_ID")); err != nil {
+		return nil, err
+	} else if configured {
+		payload["owner"] = owner
+	}
+
+	viewGroups, viewGroupsConfigured, err := parseOptionalIntListEnv("PAPERLESS_CREATED_" + kind + "_VIEW_GROUP_IDS")
+	if err != nil {
+		return nil, err
+	}
+	changeGroups, changeGroupsConfigured, err := parseOptionalIntListEnv("PAPERLESS_CREATED_" + kind + "_CHANGE_GROUP_IDS")
+	if err != nil {
+		return nil, err
+	}
+	if viewGroupsConfigured || changeGroupsConfigured {
+		payload["set_permissions"] = map[string]interface{}{
+			"view": map[string]interface{}{
+				"users":  []int{},
+				"groups": viewGroups,
+			},
+			"change": map[string]interface{}{
+				"users":  []int{},
+				"groups": changeGroups,
+			},
+		}
+	}
+
+	return payload, nil
+}
+
 func createdTagRequestPayload(tagName string, parentID *int) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"name": tagName,
@@ -1900,31 +1947,80 @@ func createdTagRequestPayload(tagName string, parentID *int) (map[string]interfa
 		payload["is_insensitive"] = isInsensitive
 	}
 
-	if owner, configured, err := parseOptionalObjectOwner(os.Getenv("PAPERLESS_CREATED_TAG_OWNER_ID")); err != nil {
+	permissionFields, err := objectOwnerAndPermissionFields("TAG")
+	if err != nil {
 		return nil, err
-	} else if configured {
-		payload["owner"] = owner
+	}
+	for key, value := range permissionFields {
+		payload[key] = value
 	}
 
-	viewGroups, viewGroupsConfigured, err := parseOptionalIntListEnv("PAPERLESS_CREATED_TAG_VIEW_GROUP_IDS")
+	return payload, nil
+}
+
+// createdCorrespondentRequestPayload mirrors createdTagRequestPayload for
+// correspondents, using PAPERLESS_CREATED_CORRESPONDENT_* env vars. Unlike
+// tags, matching_algorithm/is_insensitive default to the values Paperless-GPT
+// has always used for new correspondents (no matching, case-insensitive)
+// rather than being omitted, so existing deployments keep their behavior
+// unless they set the new env vars explicitly.
+func createdCorrespondentRequestPayload(name string) (map[string]interface{}, error) {
+	matchingAlgorithmValue := envDefault("PAPERLESS_CREATED_CORRESPONDENT_MATCHING_ALGORITHM", "0")
+	matchingAlgorithm, err := strconv.Atoi(matchingAlgorithmValue)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PAPERLESS_CREATED_CORRESPONDENT_MATCHING_ALGORITHM %q: %w", matchingAlgorithmValue, err)
+	}
+	isInsensitiveValue := envDefault("PAPERLESS_CREATED_CORRESPONDENT_IS_INSENSITIVE", "true")
+	isInsensitive, err := strconv.ParseBool(isInsensitiveValue)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PAPERLESS_CREATED_CORRESPONDENT_IS_INSENSITIVE %q: %w", isInsensitiveValue, err)
+	}
+
+	payload := map[string]interface{}{
+		"name":               name,
+		"matching_algorithm": matchingAlgorithm,
+		"match":              os.Getenv("PAPERLESS_CREATED_CORRESPONDENT_MATCH"),
+		"is_insensitive":     isInsensitive,
+	}
+
+	permissionFields, err := objectOwnerAndPermissionFields("CORRESPONDENT")
 	if err != nil {
 		return nil, err
 	}
-	changeGroups, changeGroupsConfigured, err := parseOptionalIntListEnv("PAPERLESS_CREATED_TAG_CHANGE_GROUP_IDS")
+	for key, value := range permissionFields {
+		payload[key] = value
+	}
+
+	return payload, nil
+}
+
+// createdDocumentTypeRequestPayload mirrors createdCorrespondentRequestPayload
+// for document types, using PAPERLESS_CREATED_DOCUMENT_TYPE_* env vars.
+func createdDocumentTypeRequestPayload(name string) (map[string]interface{}, error) {
+	matchingAlgorithmValue := envDefault("PAPERLESS_CREATED_DOCUMENT_TYPE_MATCHING_ALGORITHM", "0")
+	matchingAlgorithm, err := strconv.Atoi(matchingAlgorithmValue)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PAPERLESS_CREATED_DOCUMENT_TYPE_MATCHING_ALGORITHM %q: %w", matchingAlgorithmValue, err)
+	}
+	isInsensitiveValue := envDefault("PAPERLESS_CREATED_DOCUMENT_TYPE_IS_INSENSITIVE", "true")
+	isInsensitive, err := strconv.ParseBool(isInsensitiveValue)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PAPERLESS_CREATED_DOCUMENT_TYPE_IS_INSENSITIVE %q: %w", isInsensitiveValue, err)
+	}
+
+	payload := map[string]interface{}{
+		"name":               name,
+		"matching_algorithm": matchingAlgorithm,
+		"match":              os.Getenv("PAPERLESS_CREATED_DOCUMENT_TYPE_MATCH"),
+		"is_insensitive":     isInsensitive,
+	}
+
+	permissionFields, err := objectOwnerAndPermissionFields("DOCUMENT_TYPE")
 	if err != nil {
 		return nil, err
 	}
-	if viewGroupsConfigured || changeGroupsConfigured {
-		payload["set_permissions"] = map[string]interface{}{
-			"view": map[string]interface{}{
-				"users":  []int{},
-				"groups": viewGroups,
-			},
-			"change": map[string]interface{}{
-				"users":  []int{},
-				"groups": changeGroups,
-			},
-		}
+	for key, value := range permissionFields {
+		payload[key] = value
 	}
 
 	return payload, nil

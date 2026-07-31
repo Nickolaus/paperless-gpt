@@ -173,6 +173,90 @@ func TestCreatedTagRequestPayloadOmitsBlankMatch(t *testing.T) {
 	assert.NotContains(t, payload, "match")
 }
 
+func TestCreatedCorrespondentRequestPayloadDefaults(t *testing.T) {
+	payload, err := createdCorrespondentRequestPayload("Finanzamt München")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]interface{}{
+		"name":               "Finanzamt München",
+		"matching_algorithm": 0,
+		"match":              "",
+		"is_insensitive":     true,
+	}, payload)
+}
+
+func TestCreatedCorrespondentRequestPayloadCanSetOwnerAndPermissions(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_CORRESPONDENT_OWNER_ID", "null")
+	t.Setenv("PAPERLESS_CREATED_CORRESPONDENT_VIEW_GROUP_IDS", "1,2,3")
+	t.Setenv("PAPERLESS_CREATED_CORRESPONDENT_CHANGE_GROUP_IDS", "1,2,3")
+
+	payload, err := createdCorrespondentRequestPayload("Finanzamt München")
+	require.NoError(t, err)
+
+	assert.Contains(t, payload, "owner")
+	assert.Nil(t, payload["owner"])
+	assert.Equal(t, map[string]interface{}{
+		"view": map[string]interface{}{
+			"users":  []int{},
+			"groups": []int{1, 2, 3},
+		},
+		"change": map[string]interface{}{
+			"users":  []int{},
+			"groups": []int{1, 2, 3},
+		},
+	}, payload["set_permissions"])
+}
+
+func TestCreatedCorrespondentRequestPayloadRejectsInvalidMatchingConfig(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_CORRESPONDENT_MATCHING_ALGORITHM", "auto")
+
+	_, err := createdCorrespondentRequestPayload("Finanzamt München")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PAPERLESS_CREATED_CORRESPONDENT_MATCHING_ALGORITHM")
+}
+
+func TestCreatedDocumentTypeRequestPayloadDefaults(t *testing.T) {
+	payload, err := createdDocumentTypeRequestPayload("Rechnung")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]interface{}{
+		"name":               "Rechnung",
+		"matching_algorithm": 0,
+		"match":              "",
+		"is_insensitive":     true,
+	}, payload)
+}
+
+func TestCreatedDocumentTypeRequestPayloadCanSetOwnerAndPermissions(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_DOCUMENT_TYPE_OWNER_ID", "null")
+	t.Setenv("PAPERLESS_CREATED_DOCUMENT_TYPE_VIEW_GROUP_IDS", "1,2,3")
+	t.Setenv("PAPERLESS_CREATED_DOCUMENT_TYPE_CHANGE_GROUP_IDS", "1,2,3")
+
+	payload, err := createdDocumentTypeRequestPayload("Rechnung")
+	require.NoError(t, err)
+
+	assert.Contains(t, payload, "owner")
+	assert.Nil(t, payload["owner"])
+	assert.Equal(t, map[string]interface{}{
+		"view": map[string]interface{}{
+			"users":  []int{},
+			"groups": []int{1, 2, 3},
+		},
+		"change": map[string]interface{}{
+			"users":  []int{},
+			"groups": []int{1, 2, 3},
+		},
+	}, payload["set_permissions"])
+}
+
+func TestCreatedDocumentTypeRequestPayloadRejectsInvalidMatchingConfig(t *testing.T) {
+	t.Setenv("PAPERLESS_CREATED_DOCUMENT_TYPE_MATCHING_ALGORITHM", "auto")
+
+	_, err := createdDocumentTypeRequestPayload("Rechnung")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PAPERLESS_CREATED_DOCUMENT_TYPE_MATCHING_ALGORITHM")
+}
+
 // teardown closes the mock server
 func (env *testEnv) teardown() {
 	env.server.Close()
