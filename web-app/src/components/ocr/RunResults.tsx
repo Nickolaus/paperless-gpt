@@ -3,11 +3,13 @@ import {
   CheckCircleIcon,
   DocumentIcon,
   ExclamationTriangleIcon,
+  MagnifyingGlassPlusIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Document } from "../../DocumentProcessor";
 import Button from "../ui/Button";
+import ImageZoomModal from "../ui/ImageZoomModal";
 import Modal from "../ui/Modal";
 import {
   OCRPage,
@@ -34,6 +36,10 @@ interface PageImageProps {
 
 const PageImage: React.FC<PageImageProps> = ({ documentId, pageIndex, singlePage }) => {
   const [failed, setFailed] = useState(false);
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const src = `./api/documents/${documentId}/pages/${pageIndex}/image`;
+  const alt = singlePage ? "Scan" : `Scan of page ${pageIndex + 1}`;
+
   if (failed) {
     return (
       <div className="flex h-48 items-center justify-center rounded border border-line bg-surface-2">
@@ -42,13 +48,36 @@ const PageImage: React.FC<PageImageProps> = ({ documentId, pageIndex, singlePage
     );
   }
   return (
-    <img
-      src={`./api/documents/${documentId}/pages/${pageIndex}/image`}
-      alt={singlePage ? "Scan" : `Scan of page ${pageIndex + 1}`}
-      loading="lazy"
-      className="w-full rounded border border-line bg-surface object-contain shadow-card"
-      onError={() => setFailed(true)}
-    />
+    <>
+      <button
+        type="button"
+        onClick={() => setZoomOpen(true)}
+        className="group relative block w-full"
+        aria-label={`Enlarge ${alt.toLowerCase()}`}
+      >
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          className="w-full rounded border border-line bg-surface object-contain shadow-card"
+          onError={() => setFailed(true)}
+        />
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded bg-black/0 transition-colors duration-150 group-hover:bg-black/10">
+          <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+            <MagnifyingGlassPlusIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            Enlarge
+          </span>
+        </span>
+      </button>
+      <ImageZoomModal
+        key={src}
+        open={zoomOpen}
+        onClose={() => setZoomOpen(false)}
+        src={src}
+        alt={alt}
+        title={alt}
+      />
+    </>
   );
 };
 

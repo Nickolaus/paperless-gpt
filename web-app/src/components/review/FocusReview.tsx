@@ -3,6 +3,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   DocumentIcon,
+  MagnifyingGlassPlusIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import React, { useRef, useState } from "react";
@@ -12,6 +13,7 @@ import {
   TagOption,
 } from "../../DocumentProcessor";
 import Button from "../ui/Button";
+import ImageZoomModal from "../ui/ImageZoomModal";
 import Modal from "../ui/Modal";
 import {
   Decision,
@@ -74,26 +76,35 @@ const FocusReview: React.FC<FocusReviewProps> = ({
   applyingIds,
 }) => {
   const item = items[index];
-  // Track thumbnail failures per document so navigating resets the fallback.
-  const [thumbFailedFor, setThumbFailedFor] = useState<Set<number>>(
+  // Track preview failures per document so navigating resets the fallback.
+  const [previewFailedFor, setPreviewFailedFor] = useState<Set<number>>(
     () => new Set()
   );
+  const [zoomOpen, setZoomOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   if (!item) return null;
 
-  const thumbFailed = thumbFailedFor.has(item.id);
+  const previewFailed = previewFailedFor.has(item.id);
+  const previewSrc = `./api/documents/${item.id}/pages/0/image`;
+  const previewAlt = `Scan preview of "${item.original_document.title}"`;
 
   const decision = decisions[item.id] || "pending";
   const excluded = excludedMap[item.id] || new Set<FieldKey>();
   const changeCount = countChanges(item, excluded);
   const applying = applyingIds.has(item.id);
 
-  const goPrev = () => onNavigate(index > 0 ? index - 1 : items.length - 1);
-  const goNext = () => onNavigate(index < items.length - 1 ? index + 1 : 0);
+  const goPrev = () => {
+    setZoomOpen(false);
+    onNavigate(index > 0 ? index - 1 : items.length - 1);
+  };
+  const goNext = () => {
+    setZoomOpen(false);
+    onNavigate(index < items.length - 1 ? index + 1 : 0);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (isEditableTarget(e.target)) return;
+    if (isEditableTarget(e.target) || zoomOpen) return;
     switch (e.key) {
       case "j":
       case "ArrowRight":
@@ -200,26 +211,40 @@ const FocusReview: React.FC<FocusReviewProps> = ({
 
         <div className="flex min-h-0 flex-1">
           <div className="hidden min-h-0 w-1/2 flex-col border-r border-line bg-surface-2 md:flex">
-            <div className="flex shrink-0 items-center justify-center border-b border-line p-4">
-              {thumbFailed ? (
-                <div className="flex h-40 w-32 items-center justify-center rounded border border-line bg-surface">
+            <div className="min-h-0 flex-[3] overflow-hidden border-b border-line bg-surface-2 p-3">
+              {previewFailed ? (
+                <div className="flex h-full items-center justify-center rounded border border-line bg-surface">
                   <DocumentIcon
                     className="h-10 w-10 text-faint"
                     aria-hidden="true"
                   />
                 </div>
               ) : (
-                <img
-                  src={`./api/documents/${item.id}/thumb`}
-                  alt={`Scan preview of “${item.original_document.title}”`}
-                  className="max-h-56 rounded border border-line bg-surface object-contain shadow-card"
-                  onError={() =>
-                    setThumbFailedFor((prev) => new Set(prev).add(item.id))
-                  }
-                />
+                <button
+                  type="button"
+                  onClick={() => setZoomOpen(true)}
+                  className="group relative block h-full w-full"
+                  aria-label="Enlarge scan preview"
+                >
+                  <img
+                    key={item.id}
+                    src={previewSrc}
+                    alt={previewAlt}
+                    className="mx-auto h-full max-w-full rounded border border-line bg-surface object-contain shadow-card"
+                    onError={() =>
+                      setPreviewFailedFor((prev) => new Set(prev).add(item.id))
+                    }
+                  />
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded bg-black/0 transition-colors duration-150 group-hover:bg-black/10">
+                    <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                      <MagnifyingGlassPlusIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      Enlarge
+                    </span>
+                  </span>
+                </button>
               )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-[2] overflow-y-auto p-4">
               <h4 className="text-xs font-medium text-muted">
                 Extracted text (what the AI read)
               </h4>
@@ -294,6 +319,14 @@ const FocusReview: React.FC<FocusReviewProps> = ({
           </div>
         </div>
       </div>
+      <ImageZoomModal
+        key={previewSrc}
+        open={zoomOpen}
+        onClose={() => setZoomOpen(false)}
+        src={previewSrc}
+        alt={previewAlt}
+        title={item.original_document.title}
+      />
     </Modal>
   );
 };
